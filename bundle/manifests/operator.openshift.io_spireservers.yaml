@@ -1086,10 +1086,6 @@ spec:
                     description: BundleEndpoint configures this cluster's federation
                       bundle endpoint
                     properties:
-                      address:
-                        default: 0.0.0.0
-                        description: Address to bind the bundle endpoint to
-                        type: string
                       httpsWeb:
                         description: HttpsWeb configures the https_web profile (required
                           if profile is https_web)
@@ -1146,13 +1142,6 @@ spec:
                             - secretName
                             type: object
                         type: object
-                      port:
-                        default: 8443
-                        description: Port for the federation bundle endpoint
-                        format: int32
-                        maximum: 65535
-                        minimum: 1
-                        type: integer
                       profile:
                         allOf:
                         - enum:
@@ -1174,8 +1163,6 @@ spec:
                         minimum: 60
                         type: integer
                     required:
-                    - address
-                    - port
                     - profile
                     type: object
                   federatesWith:

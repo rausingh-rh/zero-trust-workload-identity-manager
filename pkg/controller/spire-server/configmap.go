@@ -216,8 +216,8 @@ func generateFederationConfig(federation *v1alpha1.FederationConfig, trustDomain
 // generateBundleEndpointConfig generates the bundle endpoint configuration
 func generateBundleEndpointConfig(bundleEndpoint *v1alpha1.BundleEndpointConfig) map[string]interface{} {
 	endpointConf := map[string]interface{}{
-		"address": bundleEndpoint.Address,
-		"port":    bundleEndpoint.Port,
+		"address": "0.0.0.0",
+		"port":    8443,
 	}
 
 	// Add refresh hint if specified
