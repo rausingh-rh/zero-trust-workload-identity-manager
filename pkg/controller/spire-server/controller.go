@@ -39,6 +39,9 @@ const (
 	SpireBundleConfigMapGeneration            = "SpireBundleConfigMapGeneration"
 	SpireServerTTLValidation                  = "SpireServerTTLValidation"
 	ConfigurationValidation                   = "ConfigurationValidation"
+	FederationConfigurationValid              = "FederationConfigurationValid"
+	FederationServiceReady                    = "FederationServiceReady"
+	FederationRouteReady                      = "FederationRouteReady"
 )
 
 type reconcilerStatus struct {
@@ -59,6 +62,8 @@ type SpireServerReconciler struct {
 
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 
 // New returns a new Reconciler instance.
 func New(mgr ctrl.Manager) (*SpireServerReconciler, error) {
@@ -156,6 +161,29 @@ func (r *SpireServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.handleTTLValidation(ctx, &server, reconcileStatus); err != nil {
 		// do not requeue if the user input validation error exist.
 		return ctrl.Result{}, nil
+	}
+
+	// Validate federation configuration if present
+	if server.Spec.Federation != nil {
+		if err := validateFederationConfig(server.Spec.Federation, server.Spec.TrustDomain); err != nil {
+			r.log.Error(err, "Invalid federation configuration", "trustDomain", server.Spec.TrustDomain)
+			reconcileStatus[FederationConfigurationValid] = reconcilerStatus{
+				Status:  metav1.ConditionFalse,
+				Reason:  "InvalidFederationConfiguration",
+				Message: fmt.Sprintf("Federation configuration validation failed: %v", err),
+			}
+			// do not requeue if the user input validation error exist.
+			return ctrl.Result{}, nil
+		}
+		// Only set to true if the condition previously existed as false
+		existingFedCondition := apimeta.FindStatusCondition(server.Status.ConditionalStatus.Conditions, FederationConfigurationValid)
+		if existingFedCondition == nil || existingFedCondition.Status == metav1.ConditionFalse {
+			reconcileStatus[FederationConfigurationValid] = reconcilerStatus{
+				Status:  metav1.ConditionTrue,
+				Reason:  "ValidFederationConfiguration",
+				Message: "Federation configuration validation passed",
+			}
+		}
 	}
 
 	spireServerConfigMap, err := GenerateSpireServerConfigMap(&server.Spec)
@@ -377,6 +405,31 @@ func (r *SpireServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Reason:  "SpireServerStatefulSetCreated",
 		Message: "spire server stateful set resources applied",
 	}
+
+	// Manage federation Service
+	if err := r.ensureFederationService(ctx, &server, createOnlyMode); err != nil {
+		r.log.Error(err, "failed to manage federation service")
+		reconcileStatus[FederationServiceReady] = reconcilerStatus{
+			Status:  metav1.ConditionFalse,
+			Reason:  "FederationServiceFailed",
+			Message: fmt.Sprintf("Failed to manage federation service: %v", err),
+		}
+		return ctrl.Result{}, err
+	}
+	if server.Spec.Federation != nil {
+		reconcileStatus[FederationServiceReady] = reconcilerStatus{
+			Status:  metav1.ConditionTrue,
+			Reason:  "FederationServiceCreated",
+			Message: "Federation service created successfully",
+		}
+	}
+
+	// Manage federation Route
+	err = r.managedFederationRoute(ctx, reconcileStatus, &server)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -400,6 +453,7 @@ func (r *SpireServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named(utils.ZeroTrustWorkloadIdentityManagerSpireServerControllerName).
 		Watches(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
+		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
 		Complete(r)
 	if err != nil {
 		return err
