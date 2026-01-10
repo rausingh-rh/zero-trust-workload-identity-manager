@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	routev1 "github.com/openshift/api/route/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -175,14 +176,35 @@ func (r *SpireOidcDiscoveryProviderReconciler) reconcileExternalCertRoleBinding(
 }
 
 // cleanupExternalCertRBAC deletes the external cert RBAC resources if they exist
+// Only deletes if no Route is using the external certificate to avoid breaking existing Routes
 func (r *SpireOidcDiscoveryProviderReconciler) cleanupExternalCertRBAC(ctx context.Context) error {
+	// Check if Route exists and uses externalCertificate
+	route := &routev1.Route{}
+	routeName := types.NamespacedName{
+		Name:      utils.SpireOIDCRouteName,
+		Namespace: utils.GetOperatorNamespace(),
+	}
+	err := r.ctrlClient.Get(ctx, routeName, route)
+	if err == nil && route.Spec.TLS != nil && route.Spec.TLS.ExternalCertificate != nil {
+		// Route still exists with external certificate - keep RBAC to avoid breaking the Route
+		r.log.Info("Route with external certificate still exists, keeping RBAC resources")
+		return nil
+	} else if err != nil && !kerrors.IsNotFound(err) {
+		// Unexpected error getting route
+		r.log.Error(err, "failed to get route while checking RBAC cleanup")
+		return err
+	}
+
+	// Safe to delete RBAC - either no Route exists or Route doesn't use external certificate
+	r.log.Info("No Route using external certificate, cleaning up RBAC resources")
+
 	// Delete RoleBinding
 	roleBinding := &rbacv1.RoleBinding{}
 	roleBindingName := types.NamespacedName{
 		Name:      utils.SpireOIDCExternalCertRoleBindingName,
 		Namespace: utils.GetOperatorNamespace(),
 	}
-	err := r.ctrlClient.Get(ctx, roleBindingName, roleBinding)
+	err = r.ctrlClient.Get(ctx, roleBindingName, roleBinding)
 	if err == nil {
 		// RoleBinding exists, delete it
 		if err := r.ctrlClient.Delete(ctx, roleBinding); err != nil && !kerrors.IsNotFound(err) {

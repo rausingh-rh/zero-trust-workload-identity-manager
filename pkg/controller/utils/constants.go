@@ -93,4 +93,8 @@ const (
 	SpireOIDCExternalCertRoleBindingName   = "spire-oidc-external-cert-reader"
 	SpireServerExternalCertRoleName        = "spire-server-external-cert-reader"
 	SpireServerExternalCertRoleBindingName = "spire-server-external-cert-reader"
+
+	// Route Resource Names
+	SpireOIDCRouteName             = "spire-oidc-discovery-provider"
+	SpireServerFederationRouteName = "spire-server-federation"
 )

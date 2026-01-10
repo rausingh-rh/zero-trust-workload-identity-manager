@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	routev1 "github.com/openshift/api/route/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,6 +58,10 @@ func (s *testStore) Get(ctx context.Context, key client.ObjectKey, obj client.Ob
 		}
 	case *rbacv1.RoleBinding:
 		if target, ok := obj.(*rbacv1.RoleBinding); ok {
+			*target = *v
+		}
+	case *routev1.Route:
+		if target, ok := obj.(*routev1.Route); ok {
 			*target = *v
 		}
 	}
@@ -1050,7 +1055,109 @@ func TestCleanupExternalCertRBAC(t *testing.T) {
 		postTestChecks func(t *testing.T, client customClient.CustomCtrlClient)
 	}{
 		{
-			name: "deletes role and rolebinding when they exist",
+			name: "keeps RBAC when Route exists with externalCertificate",
+			setupObjects: func() []client.Object {
+				return []client.Object{
+					&routev1.Route{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireOIDCRouteName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+						Spec: routev1.RouteSpec{
+							TLS: &routev1.TLSConfig{
+								ExternalCertificate: &routev1.LocalObjectReference{
+									Name: "test-cert",
+								},
+							},
+						},
+					},
+					&rbacv1.Role{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireOIDCExternalCertRoleName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+					&rbacv1.RoleBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireOIDCExternalCertRoleBindingName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+				}
+			},
+			setupClient: func(store *testStore) customClient.CustomCtrlClient {
+				return newFakeClient(store)
+			},
+			expectError: false,
+			postTestChecks: func(t *testing.T, client customClient.CustomCtrlClient) {
+				// RBAC should still exist
+				role := &rbacv1.Role{}
+				err := client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireOIDCExternalCertRoleName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, role)
+				assert.NoError(t, err, "Role should still exist")
+
+				rb := &rbacv1.RoleBinding{}
+				err = client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireOIDCExternalCertRoleBindingName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, rb)
+				assert.NoError(t, err, "RoleBinding should still exist")
+			},
+		},
+		{
+			name: "deletes RBAC when Route exists without externalCertificate",
+			setupObjects: func() []client.Object {
+				return []client.Object{
+					&routev1.Route{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireOIDCRouteName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+						Spec: routev1.RouteSpec{
+							TLS: &routev1.TLSConfig{
+								// No ExternalCertificate
+							},
+						},
+					},
+					&rbacv1.Role{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireOIDCExternalCertRoleName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+					&rbacv1.RoleBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireOIDCExternalCertRoleBindingName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+				}
+			},
+			setupClient: func(store *testStore) customClient.CustomCtrlClient {
+				return newFakeClient(store)
+			},
+			expectError: false,
+			postTestChecks: func(t *testing.T, client customClient.CustomCtrlClient) {
+				// RBAC should be deleted
+				role := &rbacv1.Role{}
+				err := client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireOIDCExternalCertRoleName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, role)
+				assert.True(t, kerrors.IsNotFound(err), "Role should be deleted")
+
+				rb := &rbacv1.RoleBinding{}
+				err = client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireOIDCExternalCertRoleBindingName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, rb)
+				assert.True(t, kerrors.IsNotFound(err), "RoleBinding should be deleted")
+			},
+		},
+		{
+			name: "deletes role and rolebinding when they exist and no Route",
 			setupObjects: func() []client.Object {
 				return []client.Object{
 					&rbacv1.Role{
@@ -1252,6 +1359,7 @@ func TestCleanupExternalCertRBAC(t *testing.T) {
 			// Setup
 			scheme := runtime.NewScheme()
 			_ = rbacv1.AddToScheme(scheme)
+			_ = routev1.AddToScheme(scheme)
 
 			store := newTestStore()
 			for _, obj := range tt.setupObjects() {

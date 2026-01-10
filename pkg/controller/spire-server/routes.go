@@ -26,7 +26,7 @@ func generateFederationRoute(server *v1alpha1.SpireServer, ztwim *v1alpha1.ZeroT
 
 	route := &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "spire-server-federation",
+			Name:      utils.SpireServerFederationRouteName,
 			Namespace: utils.OperatorNamespace,
 			Labels:    labels,
 		},

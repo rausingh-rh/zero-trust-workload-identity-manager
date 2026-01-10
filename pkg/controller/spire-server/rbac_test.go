@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	routev1 "github.com/openshift/api/route/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,6 +76,10 @@ func (s *testStore) Get(ctx context.Context, key client.ObjectKey, obj client.Ob
 		}
 	case *rbacv1.ClusterRoleBinding:
 		if target, ok := obj.(*rbacv1.ClusterRoleBinding); ok {
+			*target = *v
+		}
+	case *routev1.Route:
+		if target, ok := obj.(*routev1.Route); ok {
 			*target = *v
 		}
 	}
@@ -1268,7 +1273,113 @@ func TestCleanupExternalCertRBAC(t *testing.T) {
 		postTestChecks func(t *testing.T, client customClient.CustomCtrlClient)
 	}{
 		{
-			name: "deletes role and rolebinding when they exist",
+			name: "keeps RBAC when Route exists with externalCertificate",
+			setupObjects: func() []client.Object {
+				return []client.Object{
+					&routev1.Route{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireServerFederationRouteName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+						Spec: routev1.RouteSpec{
+							TLS: &routev1.TLSConfig{
+								ExternalCertificate: &routev1.LocalObjectReference{
+									Name: "test-cert",
+								},
+							},
+						},
+					},
+					&rbacv1.Role{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireServerExternalCertRoleName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+					&rbacv1.RoleBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireServerExternalCertRoleBindingName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+				}
+			},
+			setupClient: func(store *testStore) customClient.CustomCtrlClient { return newFakeClient(store) },
+			expectError: false,
+			postTestChecks: func(t *testing.T, client customClient.CustomCtrlClient) {
+				// RBAC should still exist
+				role := &rbacv1.Role{}
+				err := client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireServerExternalCertRoleName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, role)
+				if err != nil {
+					t.Error("Role should still exist")
+				}
+
+				rb := &rbacv1.RoleBinding{}
+				err = client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireServerExternalCertRoleBindingName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, rb)
+				if err != nil {
+					t.Error("RoleBinding should still exist")
+				}
+			},
+		},
+		{
+			name: "deletes RBAC when Route exists without externalCertificate",
+			setupObjects: func() []client.Object {
+				return []client.Object{
+					&routev1.Route{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireServerFederationRouteName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+						Spec: routev1.RouteSpec{
+							TLS: &routev1.TLSConfig{
+								// No ExternalCertificate
+							},
+						},
+					},
+					&rbacv1.Role{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireServerExternalCertRoleName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+					&rbacv1.RoleBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.SpireServerExternalCertRoleBindingName,
+							Namespace: utils.GetOperatorNamespace(),
+						},
+					},
+				}
+			},
+			setupClient: func(store *testStore) customClient.CustomCtrlClient { return newFakeClient(store) },
+			expectError: false,
+			postTestChecks: func(t *testing.T, client customClient.CustomCtrlClient) {
+				// RBAC should be deleted
+				role := &rbacv1.Role{}
+				err := client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireServerExternalCertRoleName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, role)
+				if !kerrors.IsNotFound(err) {
+					t.Error("Role should be deleted")
+				}
+
+				rb := &rbacv1.RoleBinding{}
+				err = client.Get(ctx, types.NamespacedName{
+					Name:      utils.SpireServerExternalCertRoleBindingName,
+					Namespace: utils.GetOperatorNamespace(),
+				}, rb)
+				if !kerrors.IsNotFound(err) {
+					t.Error("RoleBinding should be deleted")
+				}
+			},
+		},
+		{
+			name: "deletes role and rolebinding when they exist and no Route",
 			setupObjects: func() []client.Object {
 				return []client.Object{
 					&rbacv1.Role{
@@ -1439,6 +1550,7 @@ func newTestScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 	_ = rbacv1.AddToScheme(scheme)
+	_ = routev1.AddToScheme(scheme)
 	return scheme
 }
 

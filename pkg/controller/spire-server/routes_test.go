@@ -107,7 +107,7 @@ func TestGenerateFederationRoute(t *testing.T) {
 			route := generateFederationRoute(tt.server, ztwim)
 
 			// Check route name
-			if route.Name != "spire-server-federation" {
+			if route.Name != utils.SpireServerFederationRouteName {
 				t.Errorf("Expected route name 'spire-server-federation', got %q", route.Name)
 			}
 
