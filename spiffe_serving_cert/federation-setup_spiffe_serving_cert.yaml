@@ -1,0 +1,289 @@
+# [0;32m[INFO][0m Using temporary directory: /tmp/tmp.rdFC5HJrBd
+# [0;32m[INFO][0m Running in print-only mode
+# [0;32m[INFO][0m Retrieving cluster domains...
+# [0;32m[INFO][0m Cluster 1 (aws13jan5): apps.aws13jan5.devcluster.openshift.com
+# [0;32m[INFO][0m Cluster 2 (aws13jan6): apps.aws13jan6.devcluster.openshift.com
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m 2-Cluster Federation Setup
+# [0;32m[INFO][0m Profile: https_spiffe + https_web (Serving Cert)
+# [0;32m[INFO][0m Mode: print-only
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m 
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m YAML Resources for Console UI
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m 
+# [0;32m[INFO][0m Instructions:
+# [0;32m[INFO][0m 1. Copy each YAML section below
+# [0;32m[INFO][0m 2. Apply to the respective cluster using console UI
+# [0;32m[INFO][0m 3. Wait for SPIRE servers to be ready
+# [0;32m[INFO][0m 4. Fetch bundles manually using: curl -k https://federation.<trust-domain>
+# [0;32m[INFO][0m 5. Apply ClusterFederatedTrustDomain resources (update trustDomainBundle with fetched bundles)
+# [0;32m[INFO][0m 
+# [0;32m[INFO][0m Note: Cluster 2 uses service CA for internal route-to-pod communication (automatic)
+# [0;32m[INFO][0m       External TLS certificate can be added later via cert-manager + patch script
+# [0;32m[INFO][0m 
+# [0;34m[SECTION][0m === Cluster 1 (aws13jan5) - SPIRE Resources ===
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster
+spec:
+  trustDomain: apps.aws13jan5.devcluster.openshift.com
+  clusterName: aws13jan5
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  caSubject:
+    commonName: apps.aws13jan5.devcluster.openshift.com
+    country: "US"
+    organization: "RH"
+  persistence:
+    size: "2Gi"
+    accessMode: ReadWriteOncePod
+  datastore:
+    databaseType: sqlite3
+    connectionString: "/run/spire/data/datastore.sqlite3"
+    maxOpenConns: 100
+    maxIdleConns: 2
+    connMaxLifetime: 3600
+  federation:
+    bundleEndpoint:
+      profile: https_spiffe
+    managedRoute: "true"
+    federatesWith:
+    - trustDomain: apps.aws13jan6.devcluster.openshift.com
+      bundleEndpointUrl: https://federation.apps.aws13jan6.devcluster.openshift.com
+      bundleEndpointProfile: https_web
+  jwtIssuer: https://oidc-discovery.apps.aws13jan5.devcluster.openshift.com
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireAgent
+metadata:
+  name: cluster
+spec:
+  nodeAttestor:
+    k8sPSATEnabled: "true"
+  workloadAttestors:
+    k8sEnabled: "true"
+    workloadAttestorsVerification:
+      type: "auto"
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpiffeCSIDriver
+metadata:
+  name: cluster
+spec: {}
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireOIDCDiscoveryProvider
+metadata:
+  name: cluster
+spec:
+  jwtIssuer: https://oidc-discovery.apps.aws13jan5.devcluster.openshift.com
+
+# [0;34m[SECTION][0m === Cluster 2 (aws13jan6) - SPIRE Resources with Serving Cert ===
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster
+spec:
+  trustDomain: apps.aws13jan6.devcluster.openshift.com
+  clusterName: aws13jan6
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  caSubject:
+    commonName: apps.aws13jan6.devcluster.openshift.com
+    country: "US"
+    organization: "RH"
+  persistence:
+    size: "2Gi"
+    accessMode: ReadWriteOncePod
+  datastore:
+    databaseType: sqlite3
+    connectionString: "/run/spire/data/datastore.sqlite3"
+    maxOpenConns: 100
+    maxIdleConns: 2
+    connMaxLifetime: 3600
+  federation:
+    bundleEndpoint:
+      profile: https_web
+      httpsWeb:
+        servingCert: {}
+    managedRoute: "true"
+    federatesWith:
+    - trustDomain: apps.aws13jan5.devcluster.openshift.com
+      bundleEndpointUrl: https://federation.apps.aws13jan5.devcluster.openshift.com
+      bundleEndpointProfile: https_spiffe
+      endpointSpiffeId: spiffe://apps.aws13jan5.devcluster.openshift.com/spire/server
+  jwtIssuer: https://oidc-discovery.apps.aws13jan6.devcluster.openshift.com
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireAgent
+metadata:
+  name: cluster
+spec:
+  nodeAttestor:
+    k8sPSATEnabled: "true"
+  workloadAttestors:
+    k8sEnabled: "true"
+    workloadAttestorsVerification:
+      type: "auto"
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpiffeCSIDriver
+metadata:
+  name: cluster
+spec: {}
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireOIDCDiscoveryProvider
+metadata:
+  name: cluster
+spec:
+  jwtIssuer: https://oidc-discovery.apps.aws13jan6.devcluster.openshift.com
+
+# [0;34m[SECTION][0m === Manual Steps for Federation ===
+# After SPIRE servers are ready on both clusters, fetch bundles:
+
+# Fetch bundle from Cluster 1:
+curl -k https://federation.apps.aws13jan5.devcluster.openshift.com > cluster1-bundle.json
+
+# Fetch bundle from Cluster 2:
+curl -k https://federation.apps.aws13jan6.devcluster.openshift.com > cluster2-bundle.json
+
+# Then create ClusterFederatedTrustDomain resources with the fetched bundles:
+
+# [0;34m[SECTION][0m === Cluster 1 - Federation to Cluster 2 ===
+# Note: Replace trustDomainBundle content with actual bundle from cluster2-bundle.json
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: cluster-12-federation
+spec:
+  trustDomain: apps.aws13jan6.devcluster.openshift.com
+  bundleEndpointURL: https://federation.apps.aws13jan6.devcluster.openshift.com
+  bundleEndpointProfile:
+    type: https_web
+  className: zero-trust-workload-identity-manager-spire
+  trustDomainBundle: |-
+    {
+        "keys": [
+            {
+                "use": "x509-svid",
+                "kty": "RSA",
+                "n": "sRDtK_83ItDICYubTtHGto2wxU0J9ZwVbuLLcyH49FNrtIPwSq4mSj3tWHid0sERUG8NuSq3KKfZNPXxWdxTTdOIptl66ZzAAviQEf5x-AFzfjJpewu9Tos4LqNbvsWqP2UAoCcgauHwzNnZMqs35PHTOQ_lLJqg3veZJNETGpfDjysCsgkfnqQpaUsrAbIL8yn9spDrXT3_nF2ve2TWDGSdji-Xm9xPZq9FETFJ4PiuN1LY1lriblRM3tUpgUdhPiGwdHT4EeJi4JfSTqP7uPppnnR3wXGwriY-vTMsvdjpqttbgoEupKvWXMexr5-clC15gmf_2xuZcObKxm_2sw",
+                "e": "AQAB",
+                "x5c": [
+                    "MIIEBTCCAu2gAwIBAgIQa1ivxdD8eYQeGi36pbFTkzANBgkqhkiG9w0BAQsFADB+MQswCQYDVQQGEwJVUzELMAkGA1UEChMCUkgxMDAuBgNVBAMTJ2FwcHMuYXdzMTNqYW42LmRldmNsdXN0ZXIub3BlbnNoaWZ0LmNvbTEwMC4GA1UEBRMnMTQyNjg3ODgyNzY2ODQzODIyNzc3MjgzMTM4MzUyNjkwODQ0NTYzMB4XDTI2MDExMzA5MjIzOVoXDTI2MDExNDA5MjI0OVowfjELMAkGA1UEBhMCVVMxCzAJBgNVBAoTAlJIMTAwLgYDVQQDEydhcHBzLmF3czEzamFuNi5kZXZjbHVzdGVyLm9wZW5zaGlmdC5jb20xMDAuBgNVBAUTJzE0MjY4Nzg4Mjc2Njg0MzgyMjc3NzI4MzEzODM1MjY5MDg0NDU2MzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALEQ7Sv/NyLQyAmLm07RxraNsMVNCfWcFW7iy3Mh+PRTa7SD8EquJko97Vh4ndLBEVBvDbkqtyin2TT18VncU03TiKbZeumcwAL4kBH+cfgBc34yaXsLvU6LOC6jW77Fqj9lAKAnIGrh8MzZ2TKrN+Tx0zkP5SyaoN73mSTRExqXw48rArIJH56kKWlLKwGyC/Mp/bKQ6109/5xdr3tk1gxknY4vl5vcT2avRRExSeD4rjdS2NZa4m5UTN7VKYFHYT4hsHR0+BHiYuCX0k6j+7j6aZ50d8FxsK4mPr0zLL3Y6arbW4KBLqSr1lzHsa+fnJQteYJn/9sbmXDmysZv9rMCAwEAAaN/MH0wDgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFHL2/U743YtWI3pgCu/zBUJD/WQfMDsGA1UdEQQ0MDKGMHNwaWZmZTovL2FwcHMuYXdzMTNqYW42LmRldmNsdXN0ZXIub3BlbnNoaWZ0LmNvbTANBgkqhkiG9w0BAQsFAAOCAQEACdmfGFz9vaOMblK4v/8YRRFyaViPU3bDh58jgQIUkvkThLa8xmwJagY0W6zuV+5xh1H/+eWRWDogryu5jVaJKSafHF890dd3/5SV+79FDBbB318UiYwaWqGZpTqEQE5va34eZXyKw0+IXaIgAIk4C1B697IlIwcPo/75hFWZoWjVO4kaZGPtBYVKwYPYL7AhJSSMWXimrDjsS/aCqSmFEmChwsxi0NuRvGOjl8UdkvK/9Oy5cfJnHlgqc8L7OIpvrcZVSrl5EO5z8n30vX/J9pMTtanimmqsP4tb4hmg6SsxbXXNTSc8MIMp/28h3T6kbwatVuAL4pWOr/QJifh43A=="
+                ]
+            },
+            {
+                "use": "jwt-svid",
+                "kty": "RSA",
+                "kid": "9vVktVvwCypEJlsBATyI2tql1kOzDVFc",
+                "n": "toUtlrphXZyr3_v8W5APPfuDgQ0nD2S5Z1wPm3HUWXLbs3-2jzJuoXipYYRmL8fPcGdSE9j-JQx9EG4mDYFz4GNsfpDh2U296YAGhrg_aKm5cEHF9nQZX-4PkWr8ixsSyMoOGwdAXH5T6wDBhMeYeyjF1OUd4qVhNggHK5iBdmlwVBafJNMiUYEDGI8GdGZ2VcyeGd4burawxp_zIwYMbpUXuz_zISpgPeE-EqMVPktKSBW7cdKX4q1zF_3X1jadVqXV16niQRH2AAuhUKMpcW8hPkX0NOjMGjNojd_zFPf-ZK1Knw4oEc6-TOf2XAqlRigp27jBb-SOe34o1_J7lw",
+                "e": "AQAB"
+            }
+        ],
+        "spiffe_sequence": 1,
+        "spiffe_refresh_hint": 300
+    }
+
+# [0;34m[SECTION][0m === Cluster 2 - Federation to Cluster 1 ===
+# Note: Replace trustDomainBundle content with actual bundle from cluster1-bundle.json
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: cluster-21-federation
+spec:
+  trustDomain: apps.aws13jan5.devcluster.openshift.com
+  bundleEndpointURL: https://federation.apps.aws13jan5.devcluster.openshift.com
+  bundleEndpointProfile:
+    type: https_spiffe
+    endpointSPIFFEID: spiffe://apps.aws13jan5.devcluster.openshift.com/spire/server
+  className: zero-trust-workload-identity-manager-spire
+  trustDomainBundle: |-
+    {
+        "keys": [
+            {
+                "use": "x509-svid",
+                "kty": "RSA",
+                "n": "vuq0RZjgmirnhB7XsMuCWhNyf0pmHVK2ktrTa-cpnZwrD8ee67gd14nctpRl1OmDzWRKGZeAPIGI8H4l-JmvceDpeCKZmYzDQelRAXPhkxqud9NT_p8SKnaL7yZMl0t-dAZbQt1AHml1g77nlE4t9WOkhKY30AJwZBI8xuwAx9RcFC022jm0fShmA-33lY_9byX2l6II3BD-N56v1i3qgtObf0wu8qn1fe_1G38grR3VACTQ2RP4tiIsblmA2ZotzgK7Fxkgl9Fs3fTmjqxM5BSULplC0UoSjd3RO2Wb0nbINLO3ZQHKQhHQNJhYqy-RdvpwVvDfaHpcpxzN6OdSmQ",
+                "e": "AQAB",
+                "x5c": [
+                    "MIIEBjCCAu6gAwIBAgIRAOY+G/oxfgKA/tyU25CcTG0wDQYJKoZIhvcNAQELBQAwfjELMAkGA1UEBhMCVVMxCzAJBgNVBAoTAlJIMTAwLgYDVQQDEydhcHBzLmF3czEzamFuNS5kZXZjbHVzdGVyLm9wZW5zaGlmdC5jb20xMDAuBgNVBAUTJzMwNjA0NDkyODg4MzE3NjgzOTIwMDgyODYzNTQ2NzU1ODQ0MDA0NTAeFw0yNjAxMTMwOTE5NDNaFw0yNjAxMTQwOTE5NTNaMH4xCzAJBgNVBAYTAlVTMQswCQYDVQQKEwJSSDEwMC4GA1UEAxMnYXBwcy5hd3MxM2phbjUuZGV2Y2x1c3Rlci5vcGVuc2hpZnQuY29tMTAwLgYDVQQFEyczMDYwNDQ5Mjg4ODMxNzY4MzkyMDA4Mjg2MzU0Njc1NTg0NDAwNDUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC+6rRFmOCaKueEHtewy4JaE3J/SmYdUraS2tNr5ymdnCsPx57ruB3Xidy2lGXU6YPNZEoZl4A8gYjwfiX4ma9x4Ol4IpmZjMNB6VEBc+GTGq5301P+nxIqdovvJkyXS350BltC3UAeaXWDvueUTi31Y6SEpjfQAnBkEjzG7ADH1FwULTbaObR9KGYD7feVj/1vJfaXogjcEP43nq/WLeqC05t/TC7yqfV97/UbfyCtHdUAJNDZE/i2IixuWYDZmi3OArsXGSCX0Wzd9OaOrEzkFJQumULRShKN3dE7ZZvSdsg0s7dlAcpCEdA0mFirL5F2+nBW8N9oelynHM3o51KZAgMBAAGjfzB9MA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQAuiU+JJlXgfyf1oe7AXDA19FQljA7BgNVHREENDAyhjBzcGlmZmU6Ly9hcHBzLmF3czEzamFuNS5kZXZjbHVzdGVyLm9wZW5zaGlmdC5jb20wDQYJKoZIhvcNAQELBQADggEBAKYVZ45A3qittJy4qlwe82edTVCiOLcabMYbX/yOsj48ySnL1zNaIW9k8fQ7Enyboh6c5HyauDre4pEQ41vYPNd8VRBfkkU+3FtxyrRgVk4izAH0zQN+uYDe6NKABibK9BTjOHS0jIDYIFzIYI4W90wQ5YE0/xyr01C63jeoFGWHuefWzoSKhT5OFbqpDPq6WDyUV0DuF3cxuXKqTkYs5S1v+D09/dMwxLEnp5JnolITU3sv3DS/5EHNueerR77W+3YFoWXwbIffnQmp5uMDZ5K249zIZS6Bx7h1CqS309AUJ3j1gmBwxXmYwZ5rgMlh6ULKGufa8WziO9UC1WMPRW4="
+                ]
+            },
+            {
+                "use": "jwt-svid",
+                "kty": "RSA",
+                "kid": "B8gpZ5VoCEEze7Cvu5AUnDaTQJts759g",
+                "n": "uLbVyGgXARxkgKcCfGOeJLybM9gw5wYVaA7e1V0jGQZDaLh1IzHXuF0wd51ir2cd-96BPv73ba4vn7ACcacAl-gEJrwbIVXJoGZIHiMd6WSmKMi8uUw1DEJPuZzyUHHQk5qm7C3883CP-zmWXRyd5HbRWADU6wUUvLEoga7cIoZ70_EUNmS915TfmMWYfG9Zh72UbSwv7xKpxhNR2CL3tiTPjAJQHxN9c02MbfLsGMLiMPp92IbsQf31bRWid6-ElSUSyfdJf3iSREHMZ3JVy5hzS3BH8ggT2PHtpJs1MF2UvE44W9_ex6G2Nknk5auUU32HOJ8_67VB2o_9A_Mc2w",
+                "e": "AQAB"
+            }
+        ],
+        "spiffe_sequence": 1,
+        "spiffe_refresh_hint": 300
+    }
+
+# [0;34m[SECTION][0m === Optional: Add External TLS Certificate to Cluster 2 ===
+# If you want to add a Let's Encrypt certificate for cluster 2 federation endpoint:
+
+# Step 1: Install cert-manager operator on cluster 2
+# (Apply via console UI or oc command)
+
+# Step 2: Create ACME Issuer (Let's Encrypt)
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-http01
+  namespace: zero-trust-workload-identity-manager
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: openshift-default
+
+# Step 3: Create Certificate CR
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spire-server-federation-tls
+  namespace: zero-trust-workload-identity-manager
+spec:
+  secretName: spire-server-federation-tls
+  commonName: federation.apps.aws13jan6.devcluster.openshift.com
+  dnsNames:
+    - federation.apps.aws13jan6.devcluster.openshift.com
+  usages:
+    - server auth
+  issuerRef:
+    kind: Issuer
+    name: letsencrypt-http01
+
+oc create role secret-reader \
+  --verb=get,list,watch \
+  --resource=secrets \
+  --resource-name=spire-server-federation-tls \
+  -n zero-trust-workload-identity-manager
+
+oc create rolebinding secret-reader-binding \
+  --role=secret-reader \
+  --serviceaccount=openshift-ingress:router \
+  -n zero-trust-workload-identity-manager
+
+# Step 4: Patch SpireServer to use external certificate
+# Run: ./patch-external-tls-cert.sh -k $KUBECONFIG2 -s spire-server-federation-tls
+

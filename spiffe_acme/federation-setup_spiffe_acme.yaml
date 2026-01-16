@@ -1,0 +1,238 @@
+# [0;32m[INFO][0m Using temporary directory: /tmp/tmp.kYYy3yhx6F
+# [0;32m[INFO][0m Running in print-only mode
+# [0;32m[INFO][0m Retrieving cluster domains...
+# [0;32m[INFO][0m Cluster 1 (aws13jan3): apps.aws13jan3.devcluster.openshift.com
+# [0;32m[INFO][0m Cluster 2 (aws13jan4): apps.aws13jan4.devcluster.openshift.com
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m 2-Cluster Federation Setup
+# [0;32m[INFO][0m Profile: https_spiffe + https_web (ACME)
+# [0;32m[INFO][0m Mode: print-only
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m 
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m YAML Resources for Console UI
+# [0;32m[INFO][0m ==========================================
+# [0;32m[INFO][0m 
+# [0;32m[INFO][0m Instructions:
+# [0;32m[INFO][0m 1. Copy each YAML section below
+# [0;32m[INFO][0m 2. Apply to the respective cluster using console UI
+# [0;32m[INFO][0m 3. Wait for SPIRE servers to be ready
+# [0;32m[INFO][0m 4. Wait for ACME certificate provisioning (cluster 2)
+# [0;32m[INFO][0m 5. Fetch bundles manually using: curl -k https://federation.<trust-domain>
+# [0;32m[INFO][0m 6. Apply ClusterFederatedTrustDomain resources (update trustDomainBundle with fetched bundles)
+# [0;32m[INFO][0m 
+# [0;34m[SECTION][0m === Cluster 1 (aws13jan3) - SPIRE Resources ===
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster
+spec:
+  trustDomain: apps.aws13jan3.devcluster.openshift.com
+  clusterName: aws13jan3
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  caSubject:
+    commonName: apps.aws13jan3.devcluster.openshift.com
+    country: "US"
+    organization: "RH"
+  persistence:
+    size: "2Gi"
+    accessMode: ReadWriteOncePod
+  datastore:
+    databaseType: sqlite3
+    connectionString: "/run/spire/data/datastore.sqlite3"
+    maxOpenConns: 100
+    maxIdleConns: 2
+    connMaxLifetime: 3600
+  federation:
+    bundleEndpoint:
+      profile: https_spiffe
+    managedRoute: "true"
+    federatesWith:
+    - trustDomain: apps.aws13jan4.devcluster.openshift.com
+      bundleEndpointUrl: https://federation.apps.aws13jan4.devcluster.openshift.com
+      bundleEndpointProfile: https_web
+  jwtIssuer: https://oidc-discovery.apps.aws13jan3.devcluster.openshift.com
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireAgent
+metadata:
+  name: cluster
+spec:
+  nodeAttestor:
+    k8sPSATEnabled: "true"
+  workloadAttestors:
+    k8sEnabled: "true"
+    workloadAttestorsVerification:
+      type: "auto"
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpiffeCSIDriver
+metadata:
+  name: cluster
+spec: {}
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireOIDCDiscoveryProvider
+metadata:
+  name: cluster
+spec:
+  jwtIssuer: https://oidc-discovery.apps.aws13jan3.devcluster.openshift.com
+
+# [0;34m[SECTION][0m === Cluster 2 (aws13jan4) - SPIRE Resources with ACME ===
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster
+spec:
+  trustDomain: apps.aws13jan4.devcluster.openshift.com
+  clusterName: aws13jan4
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  caSubject:
+    commonName: apps.aws13jan4.devcluster.openshift.com
+    country: "US"
+    organization: "RH"
+  persistence:
+    size: "2Gi"
+    accessMode: ReadWriteOncePod
+  datastore:
+    databaseType: sqlite3
+    connectionString: "/run/spire/data/datastore.sqlite3"
+    maxOpenConns: 100
+    maxIdleConns: 2
+    connMaxLifetime: 3600
+  federation:
+    bundleEndpoint:
+      profile: https_web
+      httpsWeb:
+        acme:
+          directoryUrl: "https://acme-v02.api.letsencrypt.org/directory"
+          domainName: "federation.apps.aws13jan4.devcluster.openshift.com"
+          email: "rausingh@redhat.com"
+          tosAccepted: "true"
+    managedRoute: "true"
+    federatesWith:
+    - trustDomain: apps.aws13jan3.devcluster.openshift.com
+      bundleEndpointUrl: https://federation.apps.aws13jan3.devcluster.openshift.com
+      bundleEndpointProfile: https_spiffe
+      endpointSpiffeId: spiffe://apps.aws13jan3.devcluster.openshift.com/spire/server
+  jwtIssuer: https://oidc-discovery.apps.aws13jan4.devcluster.openshift.com
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireAgent
+metadata:
+  name: cluster
+spec:
+  nodeAttestor:
+    k8sPSATEnabled: "true"
+  workloadAttestors:
+    k8sEnabled: "true"
+    workloadAttestorsVerification:
+      type: "auto"
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpiffeCSIDriver
+metadata:
+  name: cluster
+spec: {}
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireOIDCDiscoveryProvider
+metadata:
+  name: cluster
+spec:
+  jwtIssuer: https://oidc-discovery.apps.aws13jan4.devcluster.openshift.com
+
+# [0;34m[SECTION][0m === Manual Steps for Federation ===
+# After SPIRE servers are ready on both clusters, fetch bundles:
+
+# Fetch bundle from Cluster 1:
+curl -k https://federation.apps.aws13jan3.devcluster.openshift.com > cluster1-bundle.json
+
+# Fetch bundle from Cluster 2 (after ACME cert is provisioned):
+curl -k https://federation.apps.aws13jan4.devcluster.openshift.com > cluster2-bundle.json
+
+# Then create ClusterFederatedTrustDomain resources with the fetched bundles:
+
+# [0;34m[SECTION][0m === Cluster 1 - Federation to Cluster 2 ===
+# Note: Replace trustDomainBundle content with actual bundle from cluster2-bundle.json
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: cluster-12-federation
+spec:
+  trustDomain: apps.aws13jan4.devcluster.openshift.com
+  bundleEndpointURL: https://federation.apps.aws13jan4.devcluster.openshift.com
+  bundleEndpointProfile:
+    type: https_web
+  className: zero-trust-workload-identity-manager-spire
+  trustDomainBundle: |-
+    {
+        "keys": [
+            {
+                "use": "x509-svid",
+                "kty": "RSA",
+                "n": "5EIz7D93WQ3CMJ1vvoi5T29oNns6jI9AsIy8M1ZByqPiP8LPu_F3bopepY2JhZWspKcQNuRrMTPGg0__hmPAzVqpMg9YqR0rgZxgZ2If0YHFSHxgrGv54skchSoa4HPSrZ5Kn_6pWCSojenw55FJtnaBVMK083kbvMvF3lSTYtd0tiq0AHuv2M0G5-2Dqf1xHDO6mD7fIU91oW-bp6oZ5dax9--WlWlUrlJtq9iL6CsUFZupmD6QILMKUt2XA6sIbOvtnbPZZPE9635v0E_lPUBvv2tjAxgsbNdluskX3PnOK_ps4zxwHb1plFrstC5zqbDWE9JjCYT9irpzaiUdUQ",
+                "e": "AQAB",
+                "x5c": [
+                    "MIIEAzCCAuugAwIBAgIQONlA3qtnrXuJ5EQhyDXDqTANBgkqhkiG9w0BAQsFADB9MQswCQYDVQQGEwJVUzELMAkGA1UEChMCUkgxMDAuBgNVBAMTJ2FwcHMuYXdzMTNqYW40LmRldmNsdXN0ZXIub3BlbnNoaWZ0LmNvbTEvMC0GA1UEBRMmNzU1NjQ4MTE4OTgxNzEzMzM2Mzg3NTE5MDQxMzE1NzgxODQ2MTcwHhcNMjYwMTEzMDgzNzEwWhcNMjYwMTE0MDgzNzIwWjB9MQswCQYDVQQGEwJVUzELMAkGA1UEChMCUkgxMDAuBgNVBAMTJ2FwcHMuYXdzMTNqYW40LmRldmNsdXN0ZXIub3BlbnNoaWZ0LmNvbTEvMC0GA1UEBRMmNzU1NjQ4MTE4OTgxNzEzMzM2Mzg3NTE5MDQxMzE1NzgxODQ2MTcwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDkQjPsP3dZDcIwnW++iLlPb2g2ezqMj0CwjLwzVkHKo+I/ws+78Xduil6ljYmFlaykpxA25GsxM8aDT/+GY8DNWqkyD1ipHSuBnGBnYh/RgcVIfGCsa/niyRyFKhrgc9Ktnkqf/qlYJKiN6fDnkUm2doFUwrTzeRu8y8XeVJNi13S2KrQAe6/YzQbn7YOp/XEcM7qYPt8hT3Whb5unqhnl1rH375aVaVSuUm2r2IvoKxQVm6mYPpAgswpS3ZcDqwhs6+2ds9lk8T3rfm/QT+U9QG+/a2MDGCxs12W6yRfc+c4r+mzjPHAdvWmUWuy0LnOpsNYT0mMJhP2KunNqJR1RAgMBAAGjfzB9MA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBRd+QDyRKN1uDqGYrnsAFg/BldT+zA7BgNVHREENDAyhjBzcGlmZmU6Ly9hcHBzLmF3czEzamFuNC5kZXZjbHVzdGVyLm9wZW5zaGlmdC5jb20wDQYJKoZIhvcNAQELBQADggEBANyVlGzHvfMgIWjfX1w/aN2HYFXre9YOJLVPBXRL/5r2ug1cUyW+vYmCcrSg8QX+jSVXJMz5f4YHFwWZXbtyR9LnyOTyFJ9GKd8XhLNgEdhNJsFWWCJtH9rj88+cTfU1birKL/+v0UMKoaa9IE+pHEvmMg3ozmqGjJzuENDGiN9jNvWTJlDVjD5YwDukKPHLcFdOUNj5Bz7Hxor4hrcdXmkJkrh8BVa/fh5pfGWGABezGwiAMucSZsf3E9kLRRnsEEcGMR+sZUIN+pDb3tAKFuJUQ2zYQJenhk5poDVkpQXe1lpz6WkTkr5rB9Teauo8EzVDccWLRs3mRUu6MsuNFGM="
+                ]
+            },
+            {
+                "use": "jwt-svid",
+                "kty": "RSA",
+                "kid": "15iprSbpgAWuGMovXe6tAaxLQ9WUxNlX",
+                "n": "vG5eMEfp42Xt7blo8ikq9hkFNdZXWPLDQ85Vm5pQcwxkKYg2xv_86D6mhhlKuqf3M-huFm-gb9I5dIcuI7y62G26tyw-BYeSwzHImWnLYN6IxT5luPjdPge9rIt9wVFNXVUxDKnm7wc9KvdKh75it3JbNMsoaidWT0uuZldTHVo50iGWR6i6OL3O2Ta9ANA2d3ggj-dOWHAaqgcsv5bnzNpZ8NZDS376zqj0a1BfG6MCMiuPrKZe51oZmDObop1XMSOvcSgjFU5QUs5xk8qCLvaC3k0IO6YFPhlV1i-S9Yhm3ncpJe6Aq93HeAA-kk4phSKJMlzU4QkzB6sbOEMLsw",
+                "e": "AQAB"
+            }
+        ],
+        "spiffe_sequence": 1,
+        "spiffe_refresh_hint": 300
+    }
+
+# [0;34m[SECTION][0m === Cluster 2 - Federation to Cluster 1 ===
+# Note: Replace trustDomainBundle content with actual bundle from cluster1-bundle.json
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: cluster-21-federation
+spec:
+  trustDomain: apps.aws13jan3.devcluster.openshift.com
+  bundleEndpointURL: https://federation.apps.aws13jan3.devcluster.openshift.com
+  bundleEndpointProfile:
+    type: https_spiffe
+    endpointSPIFFEID: spiffe://apps.aws13jan3.devcluster.openshift.com/spire/server
+  className: zero-trust-workload-identity-manager-spire
+  trustDomainBundle: |-
+    {
+        "keys": [
+            {
+                "use": "x509-svid",
+                "kty": "RSA",
+                "n": "sFIa5ERtXfulEe1-iHpK-ApV85Ei6ncqVSSC5tIZt7QuL00E0rzsnsK5iVMJHrkCqrK7NeWyQgrZbhj1g-AoettdUIeguvWbsbThcxukGoX7_ZLMZO4eRdW0W415TM6zx6QTpx0R7z_U0TGzz6fbF6H3dWPkgux02izprYTPKml7JlY4ynV-xNy_3R1jYiHJg_5tzr32M00xX_-XV1JC4ZSTPt6jrgSv2JwTFq-NXBYV9XOip941F2gPNG6uxkXAp6HtShN4McDAxYy7M3Pr9urkXRFRcDP5EvHNbLSIz7qYSX5XW5MPAYJZJan29pPallqXzDYMq8YHyuq2IBKWhw",
+                "e": "AQAB",
+                "x5c": [
+                    "MIIEBjCCAu6gAwIBAgIRANxe6LdyfecjpST0Z+NpI58wDQYJKoZIhvcNAQELBQAwfjELMAkGA1UEBhMCVVMxCzAJBgNVBAoTAlJIMTAwLgYDVQQDEydhcHBzLmF3czEzamFuMy5kZXZjbHVzdGVyLm9wZW5zaGlmdC5jb20xMDAuBgNVBAUTJzI5MjkyMjk1NTAzMDU5OTA1MTUwNTExMDIxMjA4OTI1OTU2NTk4MzAeFw0yNjAxMTMwODMzMDVaFw0yNjAxMTQwODMzMTVaMH4xCzAJBgNVBAYTAlVTMQswCQYDVQQKEwJSSDEwMC4GA1UEAxMnYXBwcy5hd3MxM2phbjMuZGV2Y2x1c3Rlci5vcGVuc2hpZnQuY29tMTAwLgYDVQQFEycyOTI5MjI5NTUwMzA1OTkwNTE1MDUxMTAyMTIwODkyNTk1NjU5ODMwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCwUhrkRG1d+6UR7X6Iekr4ClXzkSLqdypVJILm0hm3tC4vTQTSvOyewrmJUwkeuQKqsrs15bJCCtluGPWD4Ch6211Qh6C69ZuxtOFzG6Qahfv9ksxk7h5F1bRbjXlMzrPHpBOnHRHvP9TRMbPPp9sXofd1Y+SC7HTaLOmthM8qaXsmVjjKdX7E3L/dHWNiIcmD/m3OvfYzTTFf/5dXUkLhlJM+3qOuBK/YnBMWr41cFhX1c6Kn3jUXaA80bq7GRcCnoe1KE3gxwMDFjLszc+v26uRdEVFwM/kS8c1stIjPuphJfldbkw8Bglklqfb2k9qWWpfMNgyrxgfK6rYgEpaHAgMBAAGjfzB9MA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBT9B3xMuy5gPrAtEdzb92Ha5b/wiTA7BgNVHREENDAyhjBzcGlmZmU6Ly9hcHBzLmF3czEzamFuMy5kZXZjbHVzdGVyLm9wZW5zaGlmdC5jb20wDQYJKoZIhvcNAQELBQADggEBAA0LUDmeG8oqb9sRdBIlRAxwGkRhVawdVcx+UnBBT2oQFfza6cFZt4wbjQV6G/XiwGWGwbV1TygHAG46F0Cyy/LxcW02KMCHguXwYriuFQk88A3xbREy6mlmPc9mzjEGXy0KYJm0yOg/Rev5oaBFaQt8vIjyTHQB3OdR/xDOfJwoV2NQY4qmByTgrxz4SjN24IHXvB1bRUXlUpo8N9u4tJNIjCW9+qm95fAX2BkCN9HPi7pIP5fQgpUo3WUs54E63nCWIpZnZBndH7INsWfIa3BQ0ocBHJRcaJ/4egMCrDqEunOh1uaZkkX7QS5qY3OGLx0N/Uyjjd1EMcd/JD/QYtQ="
+                ]
+            },
+            {
+                "use": "jwt-svid",
+                "kty": "RSA",
+                "kid": "oBiWswbeQtUemOkyWbhmzTTjFKo4P1TS",
+                "n": "wLWLJiJn-VIH5Et3zsergqQxl7EECQ-02iT0guwirtcV9vvtdboZRk0xYu5N9RKKtZYLhR-Fuk5nxTrRSqEgt7Edl7Lv6gUxFY634mAZj3woXLRbQMueyZVwyeFuApJhG6LFaxoWN-SGQ8fL_i895NmLOgNiWHXxWhaRCSPnPyB501Gzi9anqZqB4C1dHwCjMdiY6WfBEXRlsNZOoZr5L4PfSjG3-aUbcQuxkUZm6-8Uw04p-C5YfvYfWt-aegxnxukHBOcAhgXG8njxZO73hHx0RLUCRLEhSaNfmYTz0kmKkiyMvGa6Ih6B26dNdS8a0lupW4dE9pI0zI6OuMR84w",
+                "e": "AQAB"
+            }
+        ],
+        "spiffe_sequence": 1,
+        "spiffe_refresh_hint": 300
+    }
+
