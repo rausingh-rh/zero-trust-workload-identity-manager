@@ -22,8 +22,12 @@ import (
 	"github.com/openshift/zero-trust-workload-identity-manager/pkg/controller/utils"
 )
 
-const spireServerStatefulSetSpireServerConfigHashAnnotationKey = "ztwim.openshift.io/spire-server-config-hash"
-const spireServerStatefulSetSpireControllerMangerConfigHashAnnotationKey = "ztwim.openshift.io/spire-controller-manager-config-hash"
+const (
+	spireServerStatefulSetSpireServerConfigHashAnnotationKey            = "ztwim.openshift.io/spire-server-config-hash"
+	spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey = "ztwim.openshift.io/spire-controller-manager-config-hash"
+	spireServerHealthPort                                               = "server-healthz"
+	spireCtrlMgrHealthPort                                              = "ctrlmgr-healthz"
+)
 
 // reconcileStatefulSet reconciles the Spire Server StatefulSet
 func (r *SpireServerReconciler) reconcileStatefulSet(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, createOnlyMode bool, spireServerConfigMapHash, spireControllerManagerConfigMapHash string) error {
@@ -80,7 +84,7 @@ const (
 
 func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 	spireServerConfigMapHash string,
-	spireControllerMangerConfigMapHash string) *appsv1.StatefulSet {
+	SpireControllerManagerConfigMapHash string) *appsv1.StatefulSet {
 
 	// Generate standardized labels once and reuse them
 	labels := utils.SpireServerLabels(config.Labels)
@@ -152,9 +156,9 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"kubectl.kubernetes.io/default-container":                          "spire-server",
-						spireServerStatefulSetSpireServerConfigHashAnnotationKey:           spireServerConfigMapHash,
-						spireServerStatefulSetSpireControllerMangerConfigHashAnnotationKey: spireControllerMangerConfigMapHash,
+						"kubectl.kubernetes.io/default-container":                           "spire-server",
+						spireServerStatefulSetSpireServerConfigHashAnnotationKey:            spireServerConfigMapHash,
+						spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey: SpireControllerManagerConfigMapHash,
 					},
 					Labels: labels,
 				},
@@ -175,17 +179,17 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 							},
 							Ports: []corev1.ContainerPort{
 								{Name: "grpc", ContainerPort: 8081, Protocol: corev1.ProtocolTCP},
-								{Name: "healthz", ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+								{Name: spireServerHealthPort, ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
 							},
 							LivenessProbe: &corev1.Probe{
-								ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/live", Port: intstr.FromString("healthz")}},
+								ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/live", Port: intstr.FromString(spireServerHealthPort)}},
 								InitialDelaySeconds: 15,
 								PeriodSeconds:       60,
 								TimeoutSeconds:      3,
 								FailureThreshold:    2,
 							},
 							ReadinessProbe: &corev1.Probe{
-								ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready", Port: intstr.FromString("healthz")}},
+								ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready", Port: intstr.FromString(spireServerHealthPort)}},
 								InitialDelaySeconds: 5,
 								PeriodSeconds:       5,
 							},
@@ -205,13 +209,13 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 							},
 							Ports: []corev1.ContainerPort{
 								{Name: "https", ContainerPort: 9443},
-								{Name: "healthz", ContainerPort: 8083},
+								{Name: spireCtrlMgrHealthPort, ContainerPort: 8083},
 							},
 							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromString("healthz")}},
+								ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromString(spireCtrlMgrHealthPort)}},
 							},
 							ReadinessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromString("healthz")}},
+								ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromString(spireCtrlMgrHealthPort)}},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "spire-server-socket", MountPath: "/tmp/spire-server/private", ReadOnly: true},
