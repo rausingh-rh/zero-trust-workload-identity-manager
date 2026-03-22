@@ -499,7 +499,7 @@ func createReferenceStatefulSet(config *v1alpha1.SpireServerSpec, spireServerCon
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "spire-data"},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						AccessModes: []corev1.PersistentVolumeAccessMode{volumeAccessMode},
+						AccessModes:      []corev1.PersistentVolumeAccessMode{volumeAccessMode},
 						StorageClassName: storageClassName,
 						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{

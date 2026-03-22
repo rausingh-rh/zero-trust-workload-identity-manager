@@ -368,7 +368,7 @@ type ServingCertConfig struct {
 // FederatesWithConfig represents a remote trust domain that this cluster federates with.
 // Each entry configures the local SPIRE Server to retrieve the trust bundle from a
 // remote cluster's federation endpoint.
-// +kubebuilder:validation:XValidation:rule="self.bundleEndpointProfile == 'https_spiffe' ? has(self.endpointSpiffeId) && self.endpointSpiffeId != '' : true",message="endpointSpiffeId is required when bundleEndpointProfile is https_spiffe"
+// +kubebuilder:validation:XValidation:rule="self.bundleEndpointProfile == 'https_spiffe' ? has(self.endpointSpiffeId) && self.endpointSpiffeId != ” : true",message="endpointSpiffeId is required when bundleEndpointProfile is https_spiffe"
 type FederatesWithConfig struct {
 	// trustDomain is the SPIFFE trust domain name of the remote cluster to federate with.
 	// This must match the trust domain configured on the remote SPIRE Server.
