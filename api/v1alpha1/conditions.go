@@ -35,8 +35,41 @@ const (
 )
 
 const (
+	// ConfigurationValid is the condition type used to indicate whether the
+	// SpireServer federation configuration is valid. This condition is set by the
+	// spire-server controller after validating the federation configuration
+	// including bundle endpoint settings, federated trust domain entries, and
+	// certificate configurations.
+	//   Status:
+	//   - True: federation configuration is valid
+	//   - False: federation configuration has errors
+	//   Reason:
+	//   - Valid
+	//   - Invalid
+	ConfigurationValid string = "ConfigurationValid"
+
+	// RouteAvailable is the condition type used to indicate whether the OpenShift
+	// Route for the federation bundle endpoint has been successfully created and
+	// is available for serving traffic. This condition is only relevant when
+	// federation is configured and managedRoute is set to "true".
+	//   Status:
+	//   - True: route is created and available
+	//   - False: route creation failed or route is not available
+	//   Reason:
+	//   - Available
+	//   - Unavailable
+	//   - RouteNotManaged
+	RouteAvailable string = "RouteAvailable"
+)
+
+const (
 	ReasonFailed           string = "Failed"
 	ReasonReady            string = "Ready"
 	ReasonInProgress       string = "Progressing"
 	ReasonOperandsNotReady string = "OperandsNotReady"
+	ReasonValid            string = "Valid"
+	ReasonInvalid          string = "Invalid"
+	ReasonAvailable        string = "Available"
+	ReasonUnavailable      string = "Unavailable"
+	ReasonRouteNotManaged  string = "RouteNotManaged"
 )

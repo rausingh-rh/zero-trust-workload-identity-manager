@@ -1,0 +1,614 @@
+apiVersion: apiextensions.k8s.io/v1
+name: "SpiffeCSIDriver"
+crdName: spiffecsidrivers.operator.openshift.io
+tests:
+  onCreate:
+    - name: Should be able to create a minimal SpiffeCSIDriver with defaults
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec: {}
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+
+    - name: Should reject SpiffeCSIDriver with name other than cluster
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: not-cluster
+        spec: {}
+      expectedError: "SpiffeCSIDriver is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject SpiffeCSIDriver with name default
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: default
+        spec: {}
+      expectedError: "SpiffeCSIDriver is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject SpiffeCSIDriver with empty name
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: ""
+        spec: {}
+      expectedError: "SpiffeCSIDriver is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should accept valid pluginName csi.spiffe.io
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+
+    - name: Should accept valid pluginName with hyphens and dots
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "my-custom.csi.driver0"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "my-custom.csi.driver0"
+
+    - name: Should accept valid single character pluginName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "a"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "a"
+
+    - name: Should reject pluginName with uppercase letters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "CSI.Spiffe.IO"
+      expectedError: "spec.pluginName in body should match"
+
+    - name: Should reject pluginName starting with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "-csi.spiffe.io"
+      expectedError: "spec.pluginName in body should match"
+
+    - name: Should reject pluginName ending with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io-"
+      expectedError: "spec.pluginName in body should match"
+
+    - name: Should reject pluginName starting with dot
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: ".csi.spiffe.io"
+      expectedError: "spec.pluginName in body should match"
+
+    - name: Should reject pluginName with underscores
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi_spiffe_io"
+      expectedError: "spec.pluginName in body should match"
+
+    - name: Should reject pluginName with spaces
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi spiffe io"
+      expectedError: "spec.pluginName in body should match"
+
+    - name: Should reject pluginName exceeding maxLength 127
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefghij.abcdefg"
+      expectedError: "spec.pluginName: Too long: may not be longer than 127"
+
+    - name: Should accept valid agentSocketPath
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/var/run/spire/sockets"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/var/run/spire/sockets"
+
+    - name: Should accept agentSocketPath with dots and hyphens
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/run/spire/agent-sockets/v1.0"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/run/spire/agent-sockets/v1.0"
+
+    - name: Should reject agentSocketPath without leading slash
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "run/spire/agent-sockets"
+      expectedError: "spec.agentSocketPath in body should match"
+
+    - name: Should reject agentSocketPath with special characters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/run/spire/../sockets"
+      expectedError: "spec.agentSocketPath in body should match"
+
+    - name: Should reject agentSocketPath with spaces
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/run/spire/agent sockets"
+      expectedError: "spec.agentSocketPath in body should match"
+
+    - name: Should reject agentSocketPath exceeding maxLength 256
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          agentSocketPath: "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      expectedError: "spec.agentSocketPath: Too long: may not be longer than 256"
+
+    - name: Should accept labels with valid entries
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          labels:
+            app: spiffe-csi-driver
+            environment: production
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          labels:
+            app: spiffe-csi-driver
+            environment: production
+
+    - name: Should reject labels exceeding maxProperties 64
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          labels:
+            k01: v01
+            k02: v02
+            k03: v03
+            k04: v04
+            k05: v05
+            k06: v06
+            k07: v07
+            k08: v08
+            k09: v09
+            k10: v10
+            k11: v11
+            k12: v12
+            k13: v13
+            k14: v14
+            k15: v15
+            k16: v16
+            k17: v17
+            k18: v18
+            k19: v19
+            k20: v20
+            k21: v21
+            k22: v22
+            k23: v23
+            k24: v24
+            k25: v25
+            k26: v26
+            k27: v27
+            k28: v28
+            k29: v29
+            k30: v30
+            k31: v31
+            k32: v32
+            k33: v33
+            k34: v34
+            k35: v35
+            k36: v36
+            k37: v37
+            k38: v38
+            k39: v39
+            k40: v40
+            k41: v41
+            k42: v42
+            k43: v43
+            k44: v44
+            k45: v45
+            k46: v46
+            k47: v47
+            k48: v48
+            k49: v49
+            k50: v50
+            k51: v51
+            k52: v52
+            k53: v53
+            k54: v54
+            k55: v55
+            k56: v56
+            k57: v57
+            k58: v58
+            k59: v59
+            k60: v60
+            k61: v61
+            k62: v62
+            k63: v63
+            k64: v64
+            k65: v65
+      expectedError: "spec.labels: Too many: 65: must have at most 64 items"
+
+    - name: Should accept nodeSelector with valid entries
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          nodeSelector:
+            kubernetes.io/os: linux
+            node-role.kubernetes.io/worker: ""
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          nodeSelector:
+            kubernetes.io/os: linux
+            node-role.kubernetes.io/worker: ""
+
+    - name: Should accept tolerations with valid entries
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          tolerations:
+            - key: "node-role.kubernetes.io/master"
+              operator: "Exists"
+              effect: "NoSchedule"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          tolerations:
+            - key: "node-role.kubernetes.io/master"
+              operator: "Exists"
+              effect: "NoSchedule"
+
+    - name: Should accept resource requirements
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+    - name: Should accept all optional fields together
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+          labels:
+            app: spiffe-csi
+          nodeSelector:
+            kubernetes.io/os: linux
+          tolerations:
+            - key: "node-role.kubernetes.io/master"
+              operator: "Exists"
+              effect: "NoSchedule"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+          labels:
+            app: spiffe-csi
+          nodeSelector:
+            kubernetes.io/os: linux
+          tolerations:
+            - key: "node-role.kubernetes.io/master"
+              operator: "Exists"
+              effect: "NoSchedule"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+
+    - name: Should accept affinity with node affinity rules
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/os
+                        operator: In
+                        values:
+                          - linux
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/os
+                        operator: In
+                        values:
+                          - linux
+
+  onUpdate:
+    - name: Should allow updating pluginName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "custom.csi.driver"
+          agentSocketPath: "/run/spire/agent-sockets"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "custom.csi.driver"
+          agentSocketPath: "/run/spire/agent-sockets"
+
+    - name: Should allow updating agentSocketPath
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/var/run/spire/sockets"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/var/run/spire/sockets"
+
+    - name: Should allow adding labels on update
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+          labels:
+            app: spiffe-csi
+            tier: infrastructure
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+          labels:
+            app: spiffe-csi
+            tier: infrastructure
+
+    - name: Should allow adding tolerations on update
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+          tolerations:
+            - key: "node-role.kubernetes.io/master"
+              operator: "Exists"
+              effect: "NoSchedule"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+          tolerations:
+            - key: "node-role.kubernetes.io/master"
+              operator: "Exists"
+              effect: "NoSchedule"
+
+    - name: Should reject updating pluginName to invalid pattern
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "csi.spiffe.io"
+          agentSocketPath: "/run/spire/agent-sockets"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpiffeCSIDriver
+        metadata:
+          name: cluster
+        spec:
+          pluginName: "INVALID_NAME!"
+          agentSocketPath: "/run/spire/agent-sockets"
+      expectedError: "spec.pluginName in body should match"

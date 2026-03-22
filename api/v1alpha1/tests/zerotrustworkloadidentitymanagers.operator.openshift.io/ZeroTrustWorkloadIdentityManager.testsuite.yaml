@@ -1,0 +1,435 @@
+apiVersion: apiextensions.k8s.io/v1
+name: "ZeroTrustWorkloadIdentityManager"
+crdName: zerotrustworkloadidentitymanagers.operator.openshift.io
+tests:
+  onCreate:
+    - name: Should be able to create a minimal ZeroTrustWorkloadIdentityManager with required fields
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"
+
+    - name: Should accept all spec fields populated
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "prod.example.com"
+          clusterName: "cluster-01"
+          bundleConfigMap: "custom-bundle"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "prod.example.com"
+          clusterName: "cluster-01"
+          bundleConfigMap: "custom-bundle"
+
+    - name: Should reject ZeroTrustWorkloadIdentityManager with name other than cluster
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: not-cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+      expectedError: "ZeroTrustWorkloadIdentityManager is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject ZeroTrustWorkloadIdentityManager with name default
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: default
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+      expectedError: "ZeroTrustWorkloadIdentityManager is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject missing trustDomain
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain"
+
+    - name: Should reject missing clusterName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+      expectedError: "spec.clusterName"
+
+    - name: Should reject missing both trustDomain and clusterName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec: {}
+      expectedError: "spec.trustDomain"
+
+    - name: Should reject trustDomain starting with a hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "-invalid.com"
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain in body should match"
+
+    - name: Should reject trustDomain ending with a hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "invalid.com-"
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain in body should match"
+
+    - name: Should reject trustDomain with uppercase letters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "Example.Com"
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain in body should match"
+
+    - name: Should reject trustDomain with underscore
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "invalid_domain.com"
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain in body should match"
+
+    - name: Should reject trustDomain with spaces
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "invalid domain"
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain in body should match"
+
+    - name: Should reject trustDomain exceeding maxLength of 255
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          clusterName: "my-cluster"
+      expectedError: "spec.trustDomain"
+
+    - name: Should accept trustDomain with hyphens and dots
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "my-trust.domain.example.com"
+          clusterName: "my-cluster"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "my-trust.domain.example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"
+
+    - name: Should accept single character trustDomain
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "a"
+          clusterName: "my-cluster"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "a"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"
+
+    - name: Should reject clusterName starting with a hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "-invalid"
+      expectedError: "spec.clusterName in body should match"
+
+    - name: Should reject clusterName ending with a hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "invalid-"
+      expectedError: "spec.clusterName in body should match"
+
+    - name: Should reject clusterName with uppercase letters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "MyCluster"
+      expectedError: "spec.clusterName in body should match"
+
+    - name: Should reject clusterName with underscores
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my_cluster"
+      expectedError: "spec.clusterName in body should match"
+
+    - name: Should reject clusterName exceeding maxLength of 63
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      expectedError: "spec.clusterName"
+
+    - name: Should accept clusterName with DNS subdomain dots
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "cluster-01.region.east"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "cluster-01.region.east"
+          bundleConfigMap: "spire-bundle"
+
+    - name: Should accept single character clusterName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "a"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "a"
+          bundleConfigMap: "spire-bundle"
+
+    - name: Should reject bundleConfigMap with uppercase letters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "InvalidBundle"
+      expectedError: "spec.bundleConfigMap in body should match"
+
+    - name: Should reject bundleConfigMap starting with a hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "-invalid-name"
+      expectedError: "spec.bundleConfigMap in body should match"
+
+    - name: Should accept valid custom bundleConfigMap
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "my-custom-bundle"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "my-custom-bundle"
+
+    - name: Should reject clusterName with dot segment starting with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "cluster.-invalid"
+      expectedError: "spec.clusterName in body should match"
+
+  onUpdate:
+    - name: Should reject changing trustDomain (immutable)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "changed.com"
+          clusterName: "my-cluster"
+      expectedError: "trustDomain is immutable and cannot be changed"
+
+    - name: Should reject changing clusterName (immutable)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "different-cluster"
+      expectedError: "clusterName is immutable and cannot be changed"
+
+    - name: Should reject changing bundleConfigMap (immutable)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "different-bundle"
+      expectedError: "bundleConfigMap is immutable and cannot be changed"
+
+    - name: Should allow update with no spec changes
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: ZeroTrustWorkloadIdentityManager
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: "example.com"
+          clusterName: "my-cluster"
+          bundleConfigMap: "spire-bundle"

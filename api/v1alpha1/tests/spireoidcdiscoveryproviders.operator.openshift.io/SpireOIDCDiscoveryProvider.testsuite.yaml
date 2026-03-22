@@ -1,0 +1,717 @@
+apiVersion: apiextensions.k8s.io/v1
+name: SpireOIDCDiscoveryProvider
+crdName: spireoidcdiscoveryproviders.operator.openshift.io
+tests:
+  onCreate:
+    - name: Should be able to create a minimal SpireOIDCDiscoveryProvider with only jwtIssuer
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "info"
+          logFormat: "text"
+          csiDriverName: "csi.spiffe.io"
+          replicaCount: 1
+          managedRoute: "true"
+
+    - name: Should reject SpireOIDCDiscoveryProvider with name other than cluster
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: not-cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+      expectedError: "SpireOIDCDiscoveryProvider is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject SpireOIDCDiscoveryProvider with arbitrary name
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: my-oidc-provider
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+      expectedError: "SpireOIDCDiscoveryProvider is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject missing jwtIssuer
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec: {}
+      expectedError: "spec.jwtIssuer: Required value"
+
+    - name: Should reject jwtIssuer without valid URL pattern
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "not-a-url"
+      expectedError: "spec.jwtIssuer in body should match"
+
+    - name: Should reject jwtIssuer with ftp scheme
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "ftp://files.example.com/issuer"
+      expectedError: "spec.jwtIssuer in body should match"
+
+    - name: Should reject jwtIssuer with spaces
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc example.com"
+      expectedError: "spec.jwtIssuer in body should match"
+
+    - name: Should reject jwtIssuer with query string
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com?param=value"
+      expectedError: "spec.jwtIssuer in body should match"
+
+    - name: Should reject jwtIssuer with fragment
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com#section"
+      expectedError: "spec.jwtIssuer in body should match"
+
+    - name: Should accept jwtIssuer with http scheme
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "http://oidc.example.com"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "http://oidc.example.com"
+
+    - name: Should accept jwtIssuer with https scheme and path
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com/issuer/v1"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com/issuer/v1"
+
+    - name: Should reject invalid logLevel
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "trace"
+      expectedError: "spec.logLevel: Unsupported value"
+
+    - name: Should accept valid logLevel debug
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "debug"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "debug"
+
+    - name: Should accept valid logLevel warn
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "warn"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "warn"
+
+    - name: Should accept valid logLevel error
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "error"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "error"
+
+    - name: Should reject invalid logFormat
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logFormat: "xml"
+      expectedError: "spec.logFormat: Unsupported value"
+
+    - name: Should accept valid logFormat json
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logFormat: "json"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "json"
+
+    - name: Should accept valid logFormat text
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logFormat: "text"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "text"
+
+    - name: Should reject invalid managedRoute value
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          managedRoute: "maybe"
+      expectedError: "spec.managedRoute: Unsupported value"
+
+    - name: Should accept managedRoute true
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          managedRoute: "true"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          managedRoute: "true"
+
+    - name: Should accept managedRoute false
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          managedRoute: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          managedRoute: "false"
+
+    - name: Should reject replicaCount of 0 (below minimum)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 0
+      expectedError: "spec.replicaCount"
+
+    - name: Should accept replicaCount of 1 (minimum boundary)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 1
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          replicaCount: 1
+
+    - name: Should accept replicaCount of 3 (mid-range)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 3
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          replicaCount: 3
+
+    - name: Should accept replicaCount of 5 (maximum boundary)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 5
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          replicaCount: 5
+
+    - name: Should reject replicaCount of 6 (above maximum)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 6
+      expectedError: "spec.replicaCount"
+
+    - name: Should reject replicaCount of -1 (negative value)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: -1
+      expectedError: "spec.replicaCount"
+
+    - name: Should accept valid csiDriverName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "my-custom-csi.driver.io"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          csiDriverName: "my-custom-csi.driver.io"
+
+    - name: Should reject csiDriverName starting with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "-invalid-driver"
+      expectedError: "spec.csiDriverName in body should match"
+
+    - name: Should reject csiDriverName ending with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "invalid-driver-"
+      expectedError: "spec.csiDriverName in body should match"
+
+    - name: Should reject csiDriverName with uppercase letters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "Invalid.Driver"
+      expectedError: "spec.csiDriverName in body should match"
+
+    - name: Should reject csiDriverName with underscores
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "invalid_driver"
+      expectedError: "spec.csiDriverName in body should match"
+
+    - name: Should accept valid externalSecretRef
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          externalSecretRef: "my-tls-secret"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          externalSecretRef: "my-tls-secret"
+
+    - name: Should accept externalSecretRef with dots
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          externalSecretRef: "my.tls.secret"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          externalSecretRef: "my.tls.secret"
+
+    - name: Should reject externalSecretRef starting with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          externalSecretRef: "-invalid-secret"
+      expectedError: "spec.externalSecretRef in body should match"
+
+    - name: Should reject externalSecretRef ending with hyphen
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          externalSecretRef: "invalid-secret-"
+      expectedError: "spec.externalSecretRef in body should match"
+
+    - name: Should reject externalSecretRef with uppercase letters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          externalSecretRef: "Invalid-Secret"
+      expectedError: "spec.externalSecretRef in body should match"
+
+    - name: Should accept full spec with all optional fields
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "debug"
+          logFormat: "json"
+          csiDriverName: "csi.spiffe.io"
+          replicaCount: 3
+          managedRoute: "false"
+          externalSecretRef: "my-tls-secret"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "debug"
+          logFormat: "json"
+          csiDriverName: "csi.spiffe.io"
+          replicaCount: 3
+          managedRoute: "false"
+          externalSecretRef: "my-tls-secret"
+
+  onUpdate:
+    - name: Should allow updating replicaCount from 1 to 3
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 1
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 3
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          replicaCount: 3
+
+    - name: Should allow updating replicaCount from 3 to 5
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 3
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 5
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          replicaCount: 5
+
+    - name: Should reject updating replicaCount to 0
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 1
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 0
+      expectedError: "spec.replicaCount"
+
+    - name: Should reject updating replicaCount to 6
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 5
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          replicaCount: 6
+      expectedError: "spec.replicaCount"
+
+    - name: Should allow updating logLevel
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "info"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logLevel: "debug"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "debug"
+
+    - name: Should allow updating logFormat
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logFormat: "text"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          logFormat: "json"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "json"
+
+    - name: Should allow updating managedRoute
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          managedRoute: "true"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          managedRoute: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          managedRoute: "false"
+
+    - name: Should allow updating csiDriverName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "csi.spiffe.io"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          jwtIssuer: "https://oidc.example.com"
+          csiDriverName: "custom-csi.driver.io"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireOIDCDiscoveryProvider
+        metadata:
+          name: cluster
+        spec:
+          csiDriverName: "custom-csi.driver.io"

@@ -1,0 +1,1067 @@
+apiVersion: apiextensions.k8s.io/v1
+name: "SpireAgent"
+crdName: spireagents.operator.openshift.io
+tests:
+  onCreate:
+    - name: Should be able to create a minimal SpireAgent with defaults only
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec: {}
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/run/spire/agent-sockets"
+          logLevel: "info"
+          logFormat: "text"
+
+    - name: Should reject SpireAgent with name other than cluster
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: not-cluster
+        spec: {}
+      expectedError: "SpireAgent is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should reject SpireAgent with arbitrary name
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: my-agent
+        spec:
+          logLevel: "info"
+      expectedError: "SpireAgent is a singleton, .metadata.name must be 'cluster'"
+
+    - name: Should accept valid logLevel debug
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "debug"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "debug"
+
+    - name: Should accept valid logLevel warn
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "warn"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "warn"
+
+    - name: Should accept valid logLevel error
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "error"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "error"
+
+    - name: Should reject invalid logLevel
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "trace"
+      expectedError: "spec.logLevel: Unsupported value"
+
+    - name: Should accept valid logFormat json
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "json"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "json"
+
+    - name: Should reject invalid logFormat
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "xml"
+      expectedError: "spec.logFormat: Unsupported value"
+
+    - name: Should accept valid socketPath
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/var/run/spire/sockets"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/var/run/spire/sockets"
+
+    - name: Should reject socketPath without leading slash
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "run/spire/agent-sockets"
+      expectedError: "spec.socketPath in body should match"
+
+    - name: Should reject socketPath with invalid characters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/run/spire/../agent sockets"
+      expectedError: "spec.socketPath in body should match"
+
+    - name: Should accept nodeAttestor with k8sPSATEnabled true
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor:
+            k8sPSATEnabled: "true"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor:
+            k8sPSATEnabled: "true"
+
+    - name: Should accept nodeAttestor with k8sPSATEnabled false
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor:
+            k8sPSATEnabled: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor:
+            k8sPSATEnabled: "false"
+
+    - name: Should reject nodeAttestor with invalid k8sPSATEnabled value
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor:
+            k8sPSATEnabled: "yes"
+      expectedError: "spec.nodeAttestor.k8sPSATEnabled: Unsupported value"
+
+    - name: Should accept workloadAttestors with k8sEnabled true
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "true"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "true"
+            disableContainerSelectors: "false"
+            useNewContainerLocator: "true"
+
+    - name: Should accept workloadAttestors with k8sEnabled false
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "false"
+            disableContainerSelectors: "false"
+            useNewContainerLocator: "true"
+
+    - name: Should reject workloadAttestors with invalid k8sEnabled value
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "enabled"
+      expectedError: "spec.workloadAttestors.k8sEnabled: Unsupported value"
+
+    - name: Should accept workloadAttestors with disableContainerSelectors true
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            disableContainerSelectors: "true"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            disableContainerSelectors: "true"
+            k8sEnabled: "true"
+            useNewContainerLocator: "true"
+
+    - name: Should reject workloadAttestors with invalid disableContainerSelectors value
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            disableContainerSelectors: "yes"
+      expectedError: "spec.workloadAttestors.disableContainerSelectors: Unsupported value"
+
+    - name: Should accept workloadAttestors with useNewContainerLocator false
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            useNewContainerLocator: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            useNewContainerLocator: "false"
+            k8sEnabled: "true"
+            disableContainerSelectors: "false"
+
+    - name: Should reject workloadAttestors with invalid useNewContainerLocator value
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            useNewContainerLocator: "maybe"
+      expectedError: "spec.workloadAttestors.useNewContainerLocator: Unsupported value"
+
+    - name: Should accept workloadAttestorsVerification with type auto
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: auto
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: auto
+
+    - name: Should accept workloadAttestorsVerification with type skip
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: skip
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: skip
+
+    - name: Should accept workloadAttestorsVerification with type hostCert and required fields
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/custom-certs
+              hostCertFileName: my-ca.crt
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/custom-certs
+              hostCertFileName: my-ca.crt
+
+    - name: Should reject workloadAttestorsVerification with invalid type
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: mtls
+      expectedError: "spec.workloadAttestors.workloadAttestorsVerification.type: Unsupported value"
+
+    - name: Should reject workloadAttestorsVerification with type hostCert but missing hostCertBasePath
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertFileName: my-ca.crt
+      expectedError: "hostCertBasePath is required when type is 'hostCert'"
+
+    - name: Should reject workloadAttestorsVerification with type hostCert but missing hostCertFileName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/custom-certs
+      expectedError: "hostCertFileName is required when type is 'hostCert'"
+
+    - name: Should reject workloadAttestorsVerification with type hostCert but empty hostCertBasePath
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: ""
+              hostCertFileName: my-ca.crt
+      expectedError: "hostCertBasePath is required when type is 'hostCert'"
+
+    - name: Should reject workloadAttestorsVerification with type hostCert but empty hostCertFileName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/custom-certs
+              hostCertFileName: ""
+      expectedError: "hostCertFileName is required when type is 'hostCert'"
+
+    - name: Should reject hostCertFileName with invalid characters
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/custom-certs
+              hostCertFileName: "../traversal.crt"
+      expectedError: "spec.workloadAttestors.workloadAttestorsVerification.hostCertFileName in body should match"
+
+    - name: Should accept full workloadAttestors configuration
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "true"
+            disableContainerSelectors: "true"
+            useNewContainerLocator: "false"
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/pki/tls
+              hostCertFileName: kubelet-ca.crt
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "true"
+            disableContainerSelectors: "true"
+            useNewContainerLocator: "false"
+            workloadAttestorsVerification:
+              type: hostCert
+              hostCertBasePath: /etc/pki/tls
+              hostCertFileName: kubelet-ca.crt
+
+    - name: Should reject labels exceeding maxProperties of 64
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          labels:
+            label-key-0: value-0
+            label-key-1: value-1
+            label-key-2: value-2
+            label-key-3: value-3
+            label-key-4: value-4
+            label-key-5: value-5
+            label-key-6: value-6
+            label-key-7: value-7
+            label-key-8: value-8
+            label-key-9: value-9
+            label-key-10: value-10
+            label-key-11: value-11
+            label-key-12: value-12
+            label-key-13: value-13
+            label-key-14: value-14
+            label-key-15: value-15
+            label-key-16: value-16
+            label-key-17: value-17
+            label-key-18: value-18
+            label-key-19: value-19
+            label-key-20: value-20
+            label-key-21: value-21
+            label-key-22: value-22
+            label-key-23: value-23
+            label-key-24: value-24
+            label-key-25: value-25
+            label-key-26: value-26
+            label-key-27: value-27
+            label-key-28: value-28
+            label-key-29: value-29
+            label-key-30: value-30
+            label-key-31: value-31
+            label-key-32: value-32
+            label-key-33: value-33
+            label-key-34: value-34
+            label-key-35: value-35
+            label-key-36: value-36
+            label-key-37: value-37
+            label-key-38: value-38
+            label-key-39: value-39
+            label-key-40: value-40
+            label-key-41: value-41
+            label-key-42: value-42
+            label-key-43: value-43
+            label-key-44: value-44
+            label-key-45: value-45
+            label-key-46: value-46
+            label-key-47: value-47
+            label-key-48: value-48
+            label-key-49: value-49
+            label-key-50: value-50
+            label-key-51: value-51
+            label-key-52: value-52
+            label-key-53: value-53
+            label-key-54: value-54
+            label-key-55: value-55
+            label-key-56: value-56
+            label-key-57: value-57
+            label-key-58: value-58
+            label-key-59: value-59
+            label-key-60: value-60
+            label-key-61: value-61
+            label-key-62: value-62
+            label-key-63: value-63
+            label-key-64: value-64
+      expectedError: "spec.labels: Too many"
+
+    - name: Should reject nodeSelector exceeding maxProperties of 50
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeSelector:
+            ns-key-0: value-0
+            ns-key-1: value-1
+            ns-key-2: value-2
+            ns-key-3: value-3
+            ns-key-4: value-4
+            ns-key-5: value-5
+            ns-key-6: value-6
+            ns-key-7: value-7
+            ns-key-8: value-8
+            ns-key-9: value-9
+            ns-key-10: value-10
+            ns-key-11: value-11
+            ns-key-12: value-12
+            ns-key-13: value-13
+            ns-key-14: value-14
+            ns-key-15: value-15
+            ns-key-16: value-16
+            ns-key-17: value-17
+            ns-key-18: value-18
+            ns-key-19: value-19
+            ns-key-20: value-20
+            ns-key-21: value-21
+            ns-key-22: value-22
+            ns-key-23: value-23
+            ns-key-24: value-24
+            ns-key-25: value-25
+            ns-key-26: value-26
+            ns-key-27: value-27
+            ns-key-28: value-28
+            ns-key-29: value-29
+            ns-key-30: value-30
+            ns-key-31: value-31
+            ns-key-32: value-32
+            ns-key-33: value-33
+            ns-key-34: value-34
+            ns-key-35: value-35
+            ns-key-36: value-36
+            ns-key-37: value-37
+            ns-key-38: value-38
+            ns-key-39: value-39
+            ns-key-40: value-40
+            ns-key-41: value-41
+            ns-key-42: value-42
+            ns-key-43: value-43
+            ns-key-44: value-44
+            ns-key-45: value-45
+            ns-key-46: value-46
+            ns-key-47: value-47
+            ns-key-48: value-48
+            ns-key-49: value-49
+            ns-key-50: value-50
+      expectedError: "spec.nodeSelector: Too many"
+
+    - name: Should reject tolerations exceeding maxItems of 50
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          tolerations:
+            - key: tol-key-0
+              operator: Equal
+              value: value-0
+              effect: NoSchedule
+            - key: tol-key-1
+              operator: Equal
+              value: value-1
+              effect: NoSchedule
+            - key: tol-key-2
+              operator: Equal
+              value: value-2
+              effect: NoSchedule
+            - key: tol-key-3
+              operator: Equal
+              value: value-3
+              effect: NoSchedule
+            - key: tol-key-4
+              operator: Equal
+              value: value-4
+              effect: NoSchedule
+            - key: tol-key-5
+              operator: Equal
+              value: value-5
+              effect: NoSchedule
+            - key: tol-key-6
+              operator: Equal
+              value: value-6
+              effect: NoSchedule
+            - key: tol-key-7
+              operator: Equal
+              value: value-7
+              effect: NoSchedule
+            - key: tol-key-8
+              operator: Equal
+              value: value-8
+              effect: NoSchedule
+            - key: tol-key-9
+              operator: Equal
+              value: value-9
+              effect: NoSchedule
+            - key: tol-key-10
+              operator: Equal
+              value: value-10
+              effect: NoSchedule
+            - key: tol-key-11
+              operator: Equal
+              value: value-11
+              effect: NoSchedule
+            - key: tol-key-12
+              operator: Equal
+              value: value-12
+              effect: NoSchedule
+            - key: tol-key-13
+              operator: Equal
+              value: value-13
+              effect: NoSchedule
+            - key: tol-key-14
+              operator: Equal
+              value: value-14
+              effect: NoSchedule
+            - key: tol-key-15
+              operator: Equal
+              value: value-15
+              effect: NoSchedule
+            - key: tol-key-16
+              operator: Equal
+              value: value-16
+              effect: NoSchedule
+            - key: tol-key-17
+              operator: Equal
+              value: value-17
+              effect: NoSchedule
+            - key: tol-key-18
+              operator: Equal
+              value: value-18
+              effect: NoSchedule
+            - key: tol-key-19
+              operator: Equal
+              value: value-19
+              effect: NoSchedule
+            - key: tol-key-20
+              operator: Equal
+              value: value-20
+              effect: NoSchedule
+            - key: tol-key-21
+              operator: Equal
+              value: value-21
+              effect: NoSchedule
+            - key: tol-key-22
+              operator: Equal
+              value: value-22
+              effect: NoSchedule
+            - key: tol-key-23
+              operator: Equal
+              value: value-23
+              effect: NoSchedule
+            - key: tol-key-24
+              operator: Equal
+              value: value-24
+              effect: NoSchedule
+            - key: tol-key-25
+              operator: Equal
+              value: value-25
+              effect: NoSchedule
+            - key: tol-key-26
+              operator: Equal
+              value: value-26
+              effect: NoSchedule
+            - key: tol-key-27
+              operator: Equal
+              value: value-27
+              effect: NoSchedule
+            - key: tol-key-28
+              operator: Equal
+              value: value-28
+              effect: NoSchedule
+            - key: tol-key-29
+              operator: Equal
+              value: value-29
+              effect: NoSchedule
+            - key: tol-key-30
+              operator: Equal
+              value: value-30
+              effect: NoSchedule
+            - key: tol-key-31
+              operator: Equal
+              value: value-31
+              effect: NoSchedule
+            - key: tol-key-32
+              operator: Equal
+              value: value-32
+              effect: NoSchedule
+            - key: tol-key-33
+              operator: Equal
+              value: value-33
+              effect: NoSchedule
+            - key: tol-key-34
+              operator: Equal
+              value: value-34
+              effect: NoSchedule
+            - key: tol-key-35
+              operator: Equal
+              value: value-35
+              effect: NoSchedule
+            - key: tol-key-36
+              operator: Equal
+              value: value-36
+              effect: NoSchedule
+            - key: tol-key-37
+              operator: Equal
+              value: value-37
+              effect: NoSchedule
+            - key: tol-key-38
+              operator: Equal
+              value: value-38
+              effect: NoSchedule
+            - key: tol-key-39
+              operator: Equal
+              value: value-39
+              effect: NoSchedule
+            - key: tol-key-40
+              operator: Equal
+              value: value-40
+              effect: NoSchedule
+            - key: tol-key-41
+              operator: Equal
+              value: value-41
+              effect: NoSchedule
+            - key: tol-key-42
+              operator: Equal
+              value: value-42
+              effect: NoSchedule
+            - key: tol-key-43
+              operator: Equal
+              value: value-43
+              effect: NoSchedule
+            - key: tol-key-44
+              operator: Equal
+              value: value-44
+              effect: NoSchedule
+            - key: tol-key-45
+              operator: Equal
+              value: value-45
+              effect: NoSchedule
+            - key: tol-key-46
+              operator: Equal
+              value: value-46
+              effect: NoSchedule
+            - key: tol-key-47
+              operator: Equal
+              value: value-47
+              effect: NoSchedule
+            - key: tol-key-48
+              operator: Equal
+              value: value-48
+              effect: NoSchedule
+            - key: tol-key-49
+              operator: Equal
+              value: value-49
+              effect: NoSchedule
+            - key: tol-key-50
+              operator: Equal
+              value: value-50
+              effect: NoSchedule
+      expectedError: "spec.tolerations: Too many"
+
+    - name: Should accept SpireAgent with all optional fields populated
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/var/run/spire/sockets"
+          logLevel: "debug"
+          logFormat: "json"
+          nodeAttestor:
+            k8sPSATEnabled: "true"
+          workloadAttestors:
+            k8sEnabled: "true"
+            disableContainerSelectors: "false"
+            useNewContainerLocator: "true"
+            workloadAttestorsVerification:
+              type: auto
+          labels:
+            app: spire-agent
+            env: production
+          nodeSelector:
+            node-role.kubernetes.io/worker: ""
+          tolerations:
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/var/run/spire/sockets"
+          logLevel: "debug"
+          logFormat: "json"
+          nodeAttestor:
+            k8sPSATEnabled: "true"
+          workloadAttestors:
+            k8sEnabled: "true"
+            disableContainerSelectors: "false"
+            useNewContainerLocator: "true"
+            workloadAttestorsVerification:
+              type: auto
+          labels:
+            app: spire-agent
+            env: production
+          nodeSelector:
+            node-role.kubernetes.io/worker: ""
+          tolerations:
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+    - name: Should accept nodeAttestor with default k8sPSATEnabled
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor: {}
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          nodeAttestor:
+            k8sPSATEnabled: "true"
+
+    - name: Should accept workloadAttestors with empty verification defaulting to auto
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification: {}
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            k8sEnabled: "true"
+            disableContainerSelectors: "false"
+            useNewContainerLocator: "true"
+            workloadAttestorsVerification:
+              type: auto
+
+  onUpdate:
+    - name: Should allow updating logLevel from info to debug
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "info"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "debug"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "debug"
+
+    - name: Should allow updating logFormat from text to json
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "text"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "json"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logFormat: "json"
+
+    - name: Should allow updating workloadAttestors verification type
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: auto
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: skip
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          workloadAttestors:
+            workloadAttestorsVerification:
+              type: skip
+
+    - name: Should allow updating socketPath
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/run/spire/agent-sockets"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/var/run/spire/sockets"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          socketPath: "/var/run/spire/sockets"
+
+    - name: Should reject invalid logLevel on update
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "info"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireAgent
+        metadata:
+          name: cluster
+        spec:
+          logLevel: "verbose"
+      expectedError: "spec.logLevel: Unsupported value"
