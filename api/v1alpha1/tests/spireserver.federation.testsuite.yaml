@@ -1,0 +1,1128 @@
+apiVersion: apiextensions.k8s.io/v1
+name: "SpireServer Federation Tests"
+crdName: spireservers.operator.openshift.io
+tests:
+  onCreate:
+    # Category 1: Minimal Valid Create (without federation)
+    - name: Should be able to create a minimal SpireServer without federation
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: example.com
+          clusterName: test-cluster
+          jwtIssuer: https://example.com
+          caSubject:
+            commonName: SPIRE CA
+            organization: Example Org
+            country: US
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: example.com
+          clusterName: test-cluster
+          jwtIssuer: https://example.com
+          caSubject:
+            commonName: SPIRE CA
+            organization: Example Org
+            country: US
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+
+    # Category 2: Valid Federation with https_spiffe profile
+    - name: Should accept valid federation with https_spiffe profile
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+            organization: Example Org
+            country: US
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+              refreshHint: 300
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+            organization: Example Org
+            country: US
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+              refreshHint: 300
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+
+    # Category 3: Valid Federation with https_web profile and ACME
+    - name: Should accept valid federation with https_web profile using ACME
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              refreshHint: 600
+              httpsWeb:
+                acme:
+                  directoryUrl: https://acme-v02.api.letsencrypt.org/directory
+                  domainName: spire-federation.example.com
+                  email: admin@example.com
+                  tosAccepted: "true"
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_web
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              refreshHint: 600
+              httpsWeb:
+                acme:
+                  directoryUrl: https://acme-v02.api.letsencrypt.org/directory
+                  domainName: spire-federation.example.com
+                  email: admin@example.com
+                  tosAccepted: "true"
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_web
+
+    # Category 4: Valid Federation with https_web profile and servingCert
+    - name: Should accept valid federation with https_web profile using servingCert
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  fileSyncInterval: 86400
+                  externalSecretRef: federation-tls-secret
+            managedRoute: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  fileSyncInterval: 86400
+                  externalSecretRef: federation-tls-secret
+            managedRoute: "false"
+
+    # Category 5: Singleton Name Validation
+    - name: Should reject SpireServer with name other than 'cluster'
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: not-cluster
+        spec:
+          trustDomain: example.com
+          clusterName: test-cluster
+          jwtIssuer: https://example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+      expectedError: "SpireServer is a singleton, .metadata.name must be 'cluster'"
+
+    # Category 6: Invalid https_web without httpsWeb config
+    - name: Should reject https_web profile without httpsWeb configuration
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+      expectedError: "httpsWeb is required when profile is https_web"
+
+    # Category 7: Invalid https_spiffe without endpointSpiffeId
+    - name: Should reject https_spiffe federatesWith without endpointSpiffeId
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+      expectedError: "endpointSpiffeId is required when bundleEndpointProfile is https_spiffe"
+
+    # Category 8: Invalid httpsWeb with both acme and servingCert
+    - name: Should reject httpsWeb with both acme and servingCert configured
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                acme:
+                  directoryUrl: https://acme-v02.api.letsencrypt.org/directory
+                  domainName: spire.example.com
+                  email: admin@example.com
+                servingCert:
+                  externalSecretRef: my-secret
+      expectedError: "exactly one of acme or servingCert must be set"
+
+    # Category 9: Invalid httpsWeb with neither acme nor servingCert
+    - name: Should reject httpsWeb with neither acme nor servingCert configured
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb: {}
+      expectedError: "exactly one of acme or servingCert must be set"
+
+    # Category 10: Invalid ACME directoryUrl pattern
+    - name: Should reject ACME with invalid directoryUrl (non-https)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                acme:
+                  directoryUrl: http://acme.example.com/directory
+                  domainName: spire.example.com
+                  email: admin@example.com
+      expectedError: "spec.federation.bundleEndpoint.httpsWeb.acme.directoryUrl in body should match '^https://.*'"
+
+    # Category 11: Invalid ACME email pattern
+    - name: Should reject ACME with invalid email format
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                acme:
+                  directoryUrl: https://acme.example.com/directory
+                  domainName: spire.example.com
+                  email: invalid-email
+      expectedError: "spec.federation.bundleEndpoint.httpsWeb.acme.email in body should match"
+
+    # Category 12: Invalid bundleEndpointUrl pattern
+    - name: Should reject federatesWith with invalid bundleEndpointUrl (non-https)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: http://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+      expectedError: "spec.federation.federatesWith[0].bundleEndpointUrl in body should match '^https://.*'"
+
+    # Category 13: Invalid trustDomain pattern
+    - name: Should reject federatesWith with invalid trustDomain pattern (uppercase)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.CLUSTER-B.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+      expectedError: "spec.federation.federatesWith[0].trustDomain in body should match '^[a-z0-9._-]{1,255}$'"
+
+    # Category 14: Invalid endpointSpiffeId pattern
+    - name: Should reject federatesWith with invalid endpointSpiffeId pattern
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: invalid-not-spiffe-uri
+      expectedError: "spec.federation.federatesWith[0].endpointSpiffeId in body should match '^spiffe://.*'"
+
+    # Category 15: Invalid refreshHint (below minimum)
+    - name: Should reject refreshHint below minimum (60)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+              refreshHint: 30
+      expectedError: "spec.federation.bundleEndpoint.refreshHint in body should be greater than or equal to 60"
+
+    # Category 16: Invalid refreshHint (above maximum)
+    - name: Should reject refreshHint above maximum (3600)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+              refreshHint: 7200
+      expectedError: "spec.federation.bundleEndpoint.refreshHint in body should be less than or equal to 3600"
+
+    # Category 17: Invalid fileSyncInterval (below minimum)
+    - name: Should reject fileSyncInterval below minimum (3600)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  fileSyncInterval: 1800
+                  externalSecretRef: my-secret
+      expectedError: "spec.federation.bundleEndpoint.httpsWeb.servingCert.fileSyncInterval in body should be greater than or equal to 3600"
+
+    # Category 18: Invalid fileSyncInterval (above maximum)
+    - name: Should reject fileSyncInterval above maximum (7776000)
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  fileSyncInterval: 8000000
+                  externalSecretRef: my-secret
+      expectedError: "spec.federation.bundleEndpoint.httpsWeb.servingCert.fileSyncInterval in body should be less than or equal to 7776000"
+
+    # Category 19: federatesWith with too many entries (over 50)
+    - name: Should reject federatesWith with more than 50 entries
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: cluster1.example.com
+                bundleEndpointUrl: https://spire-federation.cluster1.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster2.example.com
+                bundleEndpointUrl: https://spire-federation.cluster2.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster3.example.com
+                bundleEndpointUrl: https://spire-federation.cluster3.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster4.example.com
+                bundleEndpointUrl: https://spire-federation.cluster4.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster5.example.com
+                bundleEndpointUrl: https://spire-federation.cluster5.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster6.example.com
+                bundleEndpointUrl: https://spire-federation.cluster6.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster7.example.com
+                bundleEndpointUrl: https://spire-federation.cluster7.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster8.example.com
+                bundleEndpointUrl: https://spire-federation.cluster8.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster9.example.com
+                bundleEndpointUrl: https://spire-federation.cluster9.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster10.example.com
+                bundleEndpointUrl: https://spire-federation.cluster10.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster11.example.com
+                bundleEndpointUrl: https://spire-federation.cluster11.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster12.example.com
+                bundleEndpointUrl: https://spire-federation.cluster12.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster13.example.com
+                bundleEndpointUrl: https://spire-federation.cluster13.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster14.example.com
+                bundleEndpointUrl: https://spire-federation.cluster14.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster15.example.com
+                bundleEndpointUrl: https://spire-federation.cluster15.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster16.example.com
+                bundleEndpointUrl: https://spire-federation.cluster16.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster17.example.com
+                bundleEndpointUrl: https://spire-federation.cluster17.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster18.example.com
+                bundleEndpointUrl: https://spire-federation.cluster18.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster19.example.com
+                bundleEndpointUrl: https://spire-federation.cluster19.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster20.example.com
+                bundleEndpointUrl: https://spire-federation.cluster20.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster21.example.com
+                bundleEndpointUrl: https://spire-federation.cluster21.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster22.example.com
+                bundleEndpointUrl: https://spire-federation.cluster22.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster23.example.com
+                bundleEndpointUrl: https://spire-federation.cluster23.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster24.example.com
+                bundleEndpointUrl: https://spire-federation.cluster24.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster25.example.com
+                bundleEndpointUrl: https://spire-federation.cluster25.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster26.example.com
+                bundleEndpointUrl: https://spire-federation.cluster26.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster27.example.com
+                bundleEndpointUrl: https://spire-federation.cluster27.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster28.example.com
+                bundleEndpointUrl: https://spire-federation.cluster28.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster29.example.com
+                bundleEndpointUrl: https://spire-federation.cluster29.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster30.example.com
+                bundleEndpointUrl: https://spire-federation.cluster30.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster31.example.com
+                bundleEndpointUrl: https://spire-federation.cluster31.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster32.example.com
+                bundleEndpointUrl: https://spire-federation.cluster32.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster33.example.com
+                bundleEndpointUrl: https://spire-federation.cluster33.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster34.example.com
+                bundleEndpointUrl: https://spire-federation.cluster34.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster35.example.com
+                bundleEndpointUrl: https://spire-federation.cluster35.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster36.example.com
+                bundleEndpointUrl: https://spire-federation.cluster36.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster37.example.com
+                bundleEndpointUrl: https://spire-federation.cluster37.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster38.example.com
+                bundleEndpointUrl: https://spire-federation.cluster38.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster39.example.com
+                bundleEndpointUrl: https://spire-federation.cluster39.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster40.example.com
+                bundleEndpointUrl: https://spire-federation.cluster40.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster41.example.com
+                bundleEndpointUrl: https://spire-federation.cluster41.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster42.example.com
+                bundleEndpointUrl: https://spire-federation.cluster42.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster43.example.com
+                bundleEndpointUrl: https://spire-federation.cluster43.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster44.example.com
+                bundleEndpointUrl: https://spire-federation.cluster44.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster45.example.com
+                bundleEndpointUrl: https://spire-federation.cluster45.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster46.example.com
+                bundleEndpointUrl: https://spire-federation.cluster46.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster47.example.com
+                bundleEndpointUrl: https://spire-federation.cluster47.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster48.example.com
+                bundleEndpointUrl: https://spire-federation.cluster48.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster49.example.com
+                bundleEndpointUrl: https://spire-federation.cluster49.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster50.example.com
+                bundleEndpointUrl: https://spire-federation.cluster50.example.com
+                bundleEndpointProfile: https_web
+              - trustDomain: cluster51.example.com
+                bundleEndpointUrl: https://spire-federation.cluster51.example.com
+                bundleEndpointProfile: https_web
+      expectedError: "spec.federation.federatesWith in body should have at most 50 items"
+
+  onUpdate:
+    # Category 20: Immutability - Federation cannot be removed once set
+    - name: Should reject removal of federation configuration once set
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+      expectedError: "Federation configuration cannot be removed once set"
+
+    # Category 21: Immutability - bundleEndpoint profile cannot be changed
+    - name: Should reject change to bundleEndpoint profile once set
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  externalSecretRef: my-secret
+      expectedError: "profile is immutable and cannot be changed once set"
+
+    # Category 22: Immutability - Cannot switch from acme to servingCert
+    - name: Should reject switching from acme to servingCert
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                acme:
+                  directoryUrl: https://acme-v02.api.letsencrypt.org/directory
+                  domainName: spire.example.com
+                  email: admin@example.com
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  externalSecretRef: my-secret
+      expectedError: "cannot switch from acme to servingCert configuration"
+
+    # Category 23: Immutability - Cannot switch from servingCert to acme
+    - name: Should reject switching from servingCert to acme
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                servingCert:
+                  externalSecretRef: my-secret
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_web
+              httpsWeb:
+                acme:
+                  directoryUrl: https://acme-v02.api.letsencrypt.org/directory
+                  domainName: spire.example.com
+                  email: admin@example.com
+      expectedError: "cannot switch from servingCert to acme configuration"
+
+    # Category 24: Valid update - Adding new federatesWith entries
+    - name: Should allow adding new federatesWith entries
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+              - trustDomain: apps.cluster-c.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-c.example.com
+                bundleEndpointProfile: https_web
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            federatesWith:
+              - trustDomain: apps.cluster-b.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-b.example.com
+                bundleEndpointProfile: https_spiffe
+                endpointSpiffeId: spiffe://apps.cluster-b.example.com/spire/server
+              - trustDomain: apps.cluster-c.example.com
+                bundleEndpointUrl: https://spire-federation.cluster-c.example.com
+                bundleEndpointProfile: https_web
+
+    # Category 25: Valid update - Updating managedRoute value
+    - name: Should allow updating managedRoute value
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            managedRoute: "true"
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            managedRoute: "false"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: SpireServer
+        metadata:
+          name: cluster
+        spec:
+          trustDomain: apps.cluster-a.example.com
+          clusterName: cluster-a
+          jwtIssuer: https://cluster-a.example.com
+          caSubject:
+            commonName: SPIRE CA
+          persistence:
+            size: 1Gi
+            accessMode: ReadWriteOnce
+          datastore:
+            databaseType: sqlite3
+            connectionString: /run/spire/data/datastore.sqlite3
+          federation:
+            bundleEndpoint:
+              profile: https_spiffe
+            managedRoute: "false"
