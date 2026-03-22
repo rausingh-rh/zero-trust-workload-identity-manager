@@ -249,7 +249,7 @@ func generateServerConfMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.Zer
 		serverConfig["jwt_key_type"] = config.JWTKeyType
 	}
 
-	return map[string]interface{}{
+	confMap := map[string]interface{}{
 		"health_checks": map[string]interface{}{
 			"bind_address":     "0.0.0.0",
 			"bind_port":        "8080",
@@ -319,6 +319,19 @@ func generateServerConfMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.Zer
 			},
 		},
 	}
+
+	// Inject federation configuration if configured
+	if config.Federation != nil {
+		federationConfig := generateFederationServerConfig(config.Federation)
+		if federationConfig != nil {
+			// Merge federation keys into the server section
+			for k, v := range federationConfig {
+				serverConfig[k] = v
+			}
+		}
+	}
+
+	return confMap
 }
 
 // marshalToJSON marshals a map to JSON with indentation

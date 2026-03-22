@@ -202,7 +202,7 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "spire-data"},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						AccessModes: []corev1.PersistentVolumeAccessMode{volumeAccessMode},
+						AccessModes:      []corev1.PersistentVolumeAccessMode{volumeAccessMode},
 						StorageClassName: storageClassName,
 						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -213,6 +213,41 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 				},
 			},
 		},
+	}
+
+	// Add federation port and volumes if federation is configured
+	if config.Federation != nil {
+		// Add federation port to spire-server container
+		sts.Spec.Template.Spec.Containers[0].Ports = append(sts.Spec.Template.Spec.Containers[0].Ports,
+			corev1.ContainerPort{
+				Name:          "federation",
+				ContainerPort: int32(federationBundleEndpointPort),
+				Protocol:      corev1.ProtocolTCP,
+			},
+		)
+
+		// If https_web with serving cert, mount the federation TLS secret
+		if config.Federation.BundleEndpoint.Profile == v1alpha1.HttpsWebProfile &&
+			config.Federation.BundleEndpoint.HttpsWeb != nil &&
+			config.Federation.BundleEndpoint.HttpsWeb.ServingCert != nil {
+			sts.Spec.Template.Spec.Containers[0].VolumeMounts = append(sts.Spec.Template.Spec.Containers[0].VolumeMounts,
+				corev1.VolumeMount{
+					Name:      "federation-tls",
+					MountPath: "/run/spire/federation-tls",
+					ReadOnly:  true,
+				},
+			)
+			sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+				corev1.Volume{
+					Name: "federation-tls",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: "spire-server-federation-tls",
+						},
+					},
+				},
+			)
+		}
 	}
 
 	// Add proxy configuration if enabled
