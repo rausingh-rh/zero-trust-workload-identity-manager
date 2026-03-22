@@ -1077,6 +1077,226 @@ spec:
                   This value is used if a specific TTL is not configured for a registration entry.
                 format: duration
                 type: string
+              federation:
+                description: |-
+                  federation configures SPIRE federation endpoints and relationships for cross-cluster
+                  workload communication. When set, the operator creates the necessary Service, Route,
+                  and ConfigMap entries to expose a federation bundle endpoint and configure trust
+                  relationships with remote clusters.
+                  Once configured, this field cannot be removed; to disable federation the system
+                  must be uninstalled and reinstalled. Peer configurations (federatesWith) remain
+                  dynamic and can be added or removed at any time.
+                properties:
+                  bundleEndpoint:
+                    description: |-
+                      bundleEndpoint configures this cluster's federation bundle endpoint, which exposes
+                      the SPIRE trust bundle over HTTPS on port 8443 so that remote clusters can retrieve
+                      it for federation trust establishment.
+                    properties:
+                      httpsWeb:
+                        description: |-
+                          httpsWeb configures the https_web profile authentication settings.
+                          This field is required when profile is set to "https_web" and must not be set
+                          when profile is "https_spiffe". It allows specifying either ACME-based automatic
+                          certificate management or a manually managed serving certificate.
+                        properties:
+                          acme:
+                            description: |-
+                              acme configures automatic certificate management using the ACME protocol
+                              (e.g., Let's Encrypt). When configured, the SPIRE Server obtains and renews
+                              TLS certificates automatically. Mutually exclusive with servingCert.
+                            properties:
+                              directoryUrl:
+                                description: |-
+                                  directoryUrl is the ACME directory URL used to discover ACME endpoints
+                                  (e.g., "https://acme-v02.api.letsencrypt.org/directory" for Let's Encrypt production).
+                                  Must be a valid HTTPS URL.
+                                maxLength: 512
+                                pattern: ^https://.*
+                                type: string
+                              domainName:
+                                description: |-
+                                  domainName is the domain name for which the ACME certificate will be issued.
+                                  This should match the external DNS name of the federation bundle endpoint Route.
+                                maxLength: 255
+                                minLength: 1
+                                type: string
+                              email:
+                                description: |-
+                                  email is the email address used for ACME account registration and certificate
+                                  expiration notifications.
+                                maxLength: 254
+                                pattern: ^[a-zA-Z0-9][a-zA-Z0-9._%+-]*[a-zA-Z0-9]@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$
+                                type: string
+                              tosAccepted:
+                                default: "false"
+                                description: |-
+                                  tosAccepted indicates acceptance of the ACME provider's Terms of Service.
+                                  Certificate provisioning will not proceed unless this is set to "true".
+                                enum:
+                                - "true"
+                                - "false"
+                                type: string
+                            required:
+                            - directoryUrl
+                            - domainName
+                            - email
+                            type: object
+                          servingCert:
+                            description: |-
+                              servingCert configures a manually managed TLS certificate from a Kubernetes Secret
+                              for the federation bundle endpoint. Mutually exclusive with acme.
+                            properties:
+                              externalSecretRef:
+                                description: |-
+                                  externalSecretRef is the name of a Kubernetes Secret in the same namespace
+                                  as the operator and operands that contains the TLS certificate for the SPIRE
+                                  server federation Route host. The secret must contain tls.crt and tls.key fields.
+                                  The OpenShift Ingress Operator reads this secret to configure the Route's TLS
+                                  certificate for external access.
+                                maxLength: 253
+                                pattern: ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$
+                                type: string
+                              fileSyncInterval:
+                                default: 86400
+                                description: |-
+                                  fileSyncInterval specifies how often, in seconds, the SPIRE server checks for
+                                  certificate file updates on disk. Must be between 3600 and 7776000 seconds
+                                  (1 hour to 90 days).
+                                format: int32
+                                maximum: 7776000
+                                minimum: 3600
+                                type: integer
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of acme or servingCert must be set
+                          rule: (has(self.acme) && !has(self.servingCert)) || (!has(self.acme)
+                            && has(self.servingCert))
+                        - message: cannot switch from acme to servingCert configuration
+                          rule: '!has(oldSelf.acme) || has(self.acme)'
+                        - message: cannot switch from servingCert to acme configuration
+                          rule: '!has(oldSelf.servingCert) || has(self.servingCert)'
+                      profile:
+                        allOf:
+                        - enum:
+                          - https_spiffe
+                          - https_web
+                        - enum:
+                          - https_spiffe
+                          - https_web
+                        default: https_spiffe
+                        description: |-
+                          profile specifies the authentication profile used by the federation bundle endpoint.
+                          "https_spiffe" uses SPIFFE-based mutual TLS authentication where the endpoint
+                          presents a SPIFFE SVID for identity verification, suitable for environments
+                          where all peers are SPIRE-managed.
+                          "https_web" uses standard Web PKI (X.509 certificates from a public CA or ACME),
+                          suitable for environments with mixed PKI infrastructure.
+                        type: string
+                      refreshHint:
+                        default: 300
+                        description: |-
+                          refreshHint is the suggested interval in seconds at which remote peers should
+                          re-fetch the trust bundle from this endpoint. This value is included as a hint
+                          in the bundle endpoint response. Must be between 60 and 3600 seconds.
+                        format: int32
+                        maximum: 3600
+                        minimum: 60
+                        type: integer
+                    required:
+                    - profile
+                    type: object
+                    x-kubernetes-validations:
+                    - message: httpsWeb is required when profile is https_web
+                      rule: 'self.profile == ''https_web'' ? has(self.httpsWeb) :
+                        true'
+                    - message: profile is immutable and cannot be changed once set
+                      rule: '!has(oldSelf.profile) || oldSelf.profile == self.profile'
+                  federatesWith:
+                    description: |-
+                      federatesWith lists the remote trust domains that this cluster federates with.
+                      Each entry specifies a remote trust domain and its bundle endpoint URL so that
+                      the local SPIRE Server can retrieve the remote trust bundle for cross-cluster
+                      workload authentication. A maximum of 50 federated trust domains is supported.
+                    items:
+                      description: |-
+                        FederatesWithConfig represents a remote trust domain that this cluster federates with.
+                        Each entry configures the local SPIRE Server to retrieve the trust bundle from a
+                        remote cluster's federation endpoint.
+                      properties:
+                        bundleEndpointProfile:
+                          allOf:
+                          - enum:
+                            - https_spiffe
+                            - https_web
+                          - enum:
+                            - https_spiffe
+                            - https_web
+                          description: |-
+                            bundleEndpointProfile specifies the authentication profile of the remote federation
+                            bundle endpoint. Must match the profile configured on the remote cluster's bundle endpoint.
+                            "https_spiffe" requires endpointSpiffeId to be set for SPIFFE-based authentication.
+                            "https_web" uses standard Web PKI authentication.
+                          type: string
+                        bundleEndpointUrl:
+                          description: |-
+                            bundleEndpointUrl is the HTTPS URL of the remote cluster's federation bundle endpoint.
+                            The local SPIRE Server connects to this URL to retrieve the remote trust bundle
+                            for federation trust establishment.
+                          maxLength: 512
+                          pattern: ^https://.*
+                          type: string
+                        endpointSpiffeId:
+                          description: |-
+                            endpointSpiffeId is the expected SPIFFE ID of the remote federation bundle endpoint.
+                            This field is required when bundleEndpointProfile is "https_spiffe" and is used to
+                            verify the identity of the remote endpoint during mutual TLS authentication.
+                            Must be a valid SPIFFE ID starting with "spiffe://".
+                          maxLength: 2048
+                          pattern: ^spiffe://.*
+                          type: string
+                        trustDomain:
+                          description: |-
+                            trustDomain is the SPIFFE trust domain name of the remote cluster to federate with.
+                            This must match the trust domain configured on the remote SPIRE Server.
+                            Must contain only lowercase alphanumeric characters, dots, hyphens, and underscores.
+                          maxLength: 255
+                          minLength: 1
+                          pattern: ^[a-z0-9._-]{1,255}$
+                          type: string
+                      required:
+                      - bundleEndpointProfile
+                      - bundleEndpointUrl
+                      - trustDomain
+                      type: object
+                      x-kubernetes-validations:
+                      - message: endpointSpiffeId is required when bundleEndpointProfile
+                          is https_spiffe
+                        rule: 'self.bundleEndpointProfile == ''https_spiffe'' ? has(self.endpointSpiffeId)
+                          && self.endpointSpiffeId != '''' : true'
+                    maxItems: 50
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - trustDomain
+                    x-kubernetes-list-type: map
+                  managedRoute:
+                    default: "true"
+                    description: |-
+                      managedRoute controls whether the operator automatically creates and manages an
+                      OpenShift Route to expose the federation bundle endpoint externally.
+                      When set to "true", the operator creates a Route for external access to the
+                      federation endpoint. When set to "false", the operator does not create or manage
+                      a Route, allowing administrators to manually configure custom Routes or ingress
+                      solutions for more granular control.
+                    enum:
+                    - "true"
+                    - "false"
+                    type: string
+                required:
+                - bundleEndpoint
+                type: object
               jwtIssuer:
                 description: |-
                   jwtIssuer is the JWT issuer url.
@@ -1365,6 +1585,8 @@ spec:
           rule: oldSelf.spec.persistence.accessMode == self.spec.persistence.accessMode
         - message: spec.persistence.storageClass is immutable
           rule: oldSelf.spec.persistence.storageClass == self.spec.persistence.storageClass
+        - message: spec.federation cannot be removed once configured
+          rule: '!has(oldSelf.spec.federation) || has(self.spec.federation)'
     served: true
     storage: true
     subresources:
