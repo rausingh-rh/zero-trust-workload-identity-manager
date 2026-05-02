@@ -215,8 +215,66 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 		},
 	}
 
+	// Add federation port and volumes if federation is configured
+	if config.Federation != nil {
+		addFederationToStatefulSet(sts, config)
+	}
+
 	// Add proxy configuration if enabled
 	utils.AddProxyConfigToPod(&sts.Spec.Template.Spec)
 
 	return sts
+}
+
+// addFederationToStatefulSet adds federation-specific configuration to the StatefulSet:
+// - Exposes port 8443 on the spire-server container
+// - Adds serving certificate volume and mount for https_web profile with servingCert
+func addFederationToStatefulSet(sts *appsv1.StatefulSet, config *v1alpha1.SpireServerSpec) {
+	// Add federation port to the spire-server container
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == "spire-server" {
+			sts.Spec.Template.Spec.Containers[i].Ports = append(
+				sts.Spec.Template.Spec.Containers[i].Ports,
+				corev1.ContainerPort{
+					Name:          "federation",
+					ContainerPort: 8443,
+					Protocol:      corev1.ProtocolTCP,
+				},
+			)
+
+			// If using https_web profile with serving cert, mount the certificate secret
+			if config.Federation.BundleEndpoint.Profile == v1alpha1.HttpsWebProfile &&
+				config.Federation.BundleEndpoint.HttpsWeb != nil &&
+				config.Federation.BundleEndpoint.HttpsWeb.ServingCert != nil {
+				sts.Spec.Template.Spec.Containers[i].VolumeMounts = append(
+					sts.Spec.Template.Spec.Containers[i].VolumeMounts,
+					corev1.VolumeMount{
+						Name:      "federation-certs",
+						MountPath: "/run/spire/federation-certs",
+						ReadOnly:  true,
+					},
+				)
+			}
+			break
+		}
+	}
+
+	// Add federation certificate volume if using serving cert
+	if config.Federation.BundleEndpoint.Profile == v1alpha1.HttpsWebProfile &&
+		config.Federation.BundleEndpoint.HttpsWeb != nil &&
+		config.Federation.BundleEndpoint.HttpsWeb.ServingCert != nil {
+		// Use the service-ca generated secret for internal TLS
+		secretName := "spire-server-federation-tls"
+		sts.Spec.Template.Spec.Volumes = append(
+			sts.Spec.Template.Spec.Volumes,
+			corev1.Volume{
+				Name: "federation-certs",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: secretName,
+					},
+				},
+			},
+		)
+	}
 }

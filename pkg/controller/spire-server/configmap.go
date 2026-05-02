@@ -249,7 +249,7 @@ func generateServerConfMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.Zer
 		serverConfig["jwt_key_type"] = config.JWTKeyType
 	}
 
-	return map[string]interface{}{
+	confMap := map[string]interface{}{
 		"health_checks": map[string]interface{}{
 			"bind_address":     "0.0.0.0",
 			"bind_port":        "8080",
@@ -318,6 +318,107 @@ func generateServerConfMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.Zer
 				"port": "9402",
 			},
 		},
+	}
+
+	// Add federation configuration if present
+	if config.Federation != nil {
+		addFederationConfig(confMap, config)
+	}
+
+	return confMap
+}
+
+// addFederationConfig adds federation-related configuration to the server config map.
+// This includes the federation bundle endpoint and the list of federated trust domains.
+func addFederationConfig(confMap map[string]interface{}, config *v1alpha1.SpireServerSpec) {
+	fed := config.Federation
+
+	// Configure the local bundle endpoint
+	bundleEndpoint := map[string]interface{}{
+		"address": "0.0.0.0",
+		"port":    8443,
+	}
+
+	// Set refresh_hint if specified
+	if fed.BundleEndpoint.RefreshHint > 0 {
+		bundleEndpoint["refresh_hint"] = fed.BundleEndpoint.RefreshHint
+	}
+
+	// Set the profile configuration
+	if fed.BundleEndpoint.Profile == v1alpha1.HttpsWebProfile {
+		profileConfig := map[string]interface{}{}
+		if fed.BundleEndpoint.HttpsWeb != nil {
+			if fed.BundleEndpoint.HttpsWeb.Acme != nil {
+				acme := fed.BundleEndpoint.HttpsWeb.Acme
+				acmeConfig := map[string]interface{}{
+					"directory_url": acme.DirectoryUrl,
+					"domain_name":  acme.DomainName,
+					"email":        acme.Email,
+				}
+				if utils.StringToBool(acme.TosAccepted) {
+					acmeConfig["tos_accepted"] = true
+				}
+				profileConfig["https_web"] = map[string]interface{}{
+					"acme": acmeConfig,
+				}
+			} else if fed.BundleEndpoint.HttpsWeb.ServingCert != nil {
+				cert := fed.BundleEndpoint.HttpsWeb.ServingCert
+				servingCertConfig := map[string]interface{}{}
+				if cert.FileSyncInterval > 0 {
+					servingCertConfig["file_sync_interval"] = cert.FileSyncInterval
+				}
+				profileConfig["https_web"] = map[string]interface{}{
+					"serving_cert_file": map[string]interface{}{
+						"cert_file_path": "/run/spire/federation-certs/tls.crt",
+						"key_file_path":  "/run/spire/federation-certs/tls.key",
+					},
+				}
+				for k, v := range servingCertConfig {
+					profileConfig["https_web"].(map[string]interface{})[k] = v
+				}
+			}
+		}
+		bundleEndpoint["profile"] = profileConfig
+	} else {
+		// Default: https_spiffe
+		bundleEndpoint["profile"] = map[string]interface{}{
+			"https_spiffe": map[string]interface{}{},
+		}
+	}
+
+	// Add bundle endpoint to server config
+	serverConfig := confMap["server"].(map[string]interface{})
+	serverConfig["federation"] = map[string]interface{}{
+		"bundle_endpoint": bundleEndpoint,
+	}
+
+	// Add federated trust domains
+	if len(fed.FederatesWith) > 0 {
+		federatesWith := make([]map[string]interface{}, 0, len(fed.FederatesWith))
+		for _, peer := range fed.FederatesWith {
+			peerConfig := map[string]interface{}{
+				"bundle_endpoint_url": peer.BundleEndpointUrl,
+			}
+
+			if peer.BundleEndpointProfile == v1alpha1.HttpsSpiffeProfile {
+				peerProfile := map[string]interface{}{
+					"https_spiffe": map[string]interface{}{},
+				}
+				if peer.EndpointSpiffeId != "" {
+					peerProfile["https_spiffe"].(map[string]interface{})["endpoint_spiffe_id"] = peer.EndpointSpiffeId
+				}
+				peerConfig["bundle_endpoint_profile"] = peerProfile
+			} else {
+				peerConfig["bundle_endpoint_profile"] = map[string]interface{}{
+					"https_web": map[string]interface{}{},
+				}
+			}
+
+			federatesWith = append(federatesWith, map[string]interface{}{
+				peer.TrustDomain: peerConfig,
+			})
+		}
+		serverConfig["federation"].(map[string]interface{})["federates_with"] = federatesWith
 	}
 }
 

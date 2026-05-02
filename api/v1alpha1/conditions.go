@@ -32,6 +32,27 @@ const (
 	//   - Ready: All existing operands are ready or CRs don't exist yet
 	//   - OperandsNotReady: Some existing operands are not ready, or CreateOnlyMode is enabled
 	Upgradeable string = "Upgradeable"
+
+	// ConfigurationValid indicates whether the SpireServer federation configuration
+	// has been validated and applied successfully.
+	//   Status:
+	//   - True: Federation configuration is valid and applied
+	//   - False: Federation configuration is invalid or failed to apply
+	//   Reason:
+	//   - Ready: Configuration is valid
+	//   - Failed: Configuration validation failed
+	ConfigurationValid string = "ConfigurationValid"
+
+	// RouteAvailable indicates whether the federation endpoint Route has been
+	// created and is available for external access.
+	//   Status:
+	//   - True: Federation Route is created and available
+	//   - False: Federation Route is not available
+	//   Reason:
+	//   - Ready: Route is created and available
+	//   - Failed: Route creation or configuration failed
+	//   - Progressing: Route is being created or updated
+	RouteAvailable string = "RouteAvailable"
 )
 
 const (
