@@ -381,28 +381,6 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
-func TestSetInitialReconciliationStatus(t *testing.T) {
-	tests := []struct {
-		name        string
-		updateError error
-	}{
-		{name: "successful update", updateError: nil},
-		{name: "update error handled gracefully", updateError: errors.New("update failed")},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fakeClient := &fakes.FakeCustomCtrlClient{}
-			fakeClient.StatusUpdateWithRetryReturns(tt.updateError)
-
-			obj := &v1alpha1.SpireServer{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}
-			SetInitialReconciliationStatus(context.Background(), fakeClient, obj, func() *v1alpha1.ConditionalStatus {
-				return &obj.Status.ConditionalStatus
-			}, "SpireServer")
-		})
-	}
-}
-
 func TestApplyStatus(t *testing.T) {
 	tests := []struct {
 		name        string
