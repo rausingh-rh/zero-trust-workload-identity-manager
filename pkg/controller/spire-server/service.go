@@ -8,6 +8,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/openshift/zero-trust-workload-identity-manager/api/v1alpha1"
@@ -16,7 +17,7 @@ import (
 	"github.com/openshift/zero-trust-workload-identity-manager/pkg/operator/assets"
 )
 
-// reconcileService reconciles all Services (spire-server and controller-manager)
+// reconcileService reconciles all Services (spire-server, controller-manager, and federation)
 func (r *SpireServerReconciler) reconcileService(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, createOnlyMode bool) error {
 	// Spire Server Service
 	if err := r.reconcileSpireServerService(ctx, server, statusMgr, createOnlyMode); err != nil {
@@ -26,6 +27,13 @@ func (r *SpireServerReconciler) reconcileService(ctx context.Context, server *v1
 	// Controller Manager Webhook Service
 	if err := r.reconcileSpireControllerManagerService(ctx, server, statusMgr, createOnlyMode); err != nil {
 		return err
+	}
+
+	// Federation Service (only when federation is configured)
+	if server.Spec.Federation != nil {
+		if err := r.reconcileFederationService(ctx, server, statusMgr, createOnlyMode); err != nil {
+			return err
+		}
 	}
 
 	statusMgr.AddCondition(ServiceAvailable, v1alpha1.ReasonReady,
@@ -223,4 +231,110 @@ func getSpireControllerManagerWebhookService(customLabels map[string]string) *co
 		"app.kubernetes.io/instance": utils.StandardInstance,
 	}
 	return svc
+}
+
+// reconcileFederationService reconciles the federation bundle endpoint Service
+func (r *SpireServerReconciler) reconcileFederationService(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, createOnlyMode bool) error {
+	desired := getFederationService(server.Spec.Labels)
+
+	if err := controllerutil.SetControllerReference(server, desired, r.scheme); err != nil {
+		r.log.Error(err, "failed to set controller reference on federation service")
+		statusMgr.AddCondition(FederationServiceAvailable, v1alpha1.ReasonFailed,
+			fmt.Sprintf("Failed to set owner reference on Federation Service: %v", err),
+			metav1.ConditionFalse)
+		return err
+	}
+
+	existing := &corev1.Service{}
+	err := r.ctrlClient.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing)
+
+	if err != nil {
+		if !kerrors.IsNotFound(err) {
+			r.log.Error(err, "failed to get federation service")
+			statusMgr.AddCondition(FederationServiceAvailable, v1alpha1.ReasonFailed,
+				fmt.Sprintf("Failed to get Federation Service: %v", err),
+				metav1.ConditionFalse)
+			return err
+		}
+
+		if err := r.ctrlClient.Create(ctx, desired); err != nil {
+			r.log.Error(err, "failed to create federation service")
+			statusMgr.AddCondition(FederationServiceAvailable, v1alpha1.ReasonFailed,
+				fmt.Sprintf("Failed to create Federation Service: %v", err),
+				metav1.ConditionFalse)
+			return err
+		}
+
+		r.log.Info("Created Federation Service", "name", desired.Name, "namespace", desired.Namespace)
+		statusMgr.AddCondition(FederationServiceAvailable, v1alpha1.ReasonReady,
+			"Federation Service created",
+			metav1.ConditionTrue)
+		return nil
+	}
+
+	if createOnlyMode {
+		r.log.V(1).Info("Federation Service exists, skipping update due to create-only mode", "name", desired.Name)
+		return nil
+	}
+
+	// Preserve Kubernetes-managed fields
+	desired.ResourceVersion = existing.ResourceVersion
+	desired.Spec.ClusterIP = existing.Spec.ClusterIP
+	desired.Spec.ClusterIPs = existing.Spec.ClusterIPs
+	desired.Spec.IPFamilies = existing.Spec.IPFamilies
+	desired.Spec.IPFamilyPolicy = existing.Spec.IPFamilyPolicy
+	desired.Spec.InternalTrafficPolicy = existing.Spec.InternalTrafficPolicy
+	desired.Spec.SessionAffinity = existing.Spec.SessionAffinity
+
+	for i := range desired.Spec.Ports {
+		if desired.Spec.Ports[i].Protocol == "" {
+			desired.Spec.Ports[i].Protocol = corev1.ProtocolTCP
+		}
+	}
+
+	if !utils.ResourceNeedsUpdate(existing, desired) {
+		r.log.V(1).Info("Federation Service is up to date", "name", desired.Name)
+		return nil
+	}
+
+	if err := r.ctrlClient.Update(ctx, desired); err != nil {
+		r.log.Error(err, "failed to update federation service")
+		statusMgr.AddCondition(FederationServiceAvailable, v1alpha1.ReasonFailed,
+			fmt.Sprintf("Failed to update Federation Service: %v", err),
+			metav1.ConditionFalse)
+		return err
+	}
+
+	r.log.Info("Updated Federation Service", "name", desired.Name, "namespace", desired.Namespace)
+	statusMgr.AddCondition(FederationServiceAvailable, v1alpha1.ReasonReady,
+		"Federation Service updated",
+		metav1.ConditionTrue)
+	return nil
+}
+
+// getFederationService returns the federation bundle endpoint Service
+func getFederationService(customLabels map[string]string) *corev1.Service {
+	labels := utils.SpireServerLabels(customLabels)
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spire-server-federation",
+			Namespace: utils.GetOperatorNamespace(),
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "federation",
+					Port:       8443,
+					TargetPort: intstr.FromInt32(8443),
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+			Selector: map[string]string{
+				"app.kubernetes.io/name":     "spire-server",
+				"app.kubernetes.io/instance": utils.StandardInstance,
+			},
+		},
+	}
 }

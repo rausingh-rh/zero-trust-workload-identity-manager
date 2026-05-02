@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/zero-trust-workload-identity-manager/api/v1alpha1"
 	customClient "github.com/openshift/zero-trust-workload-identity-manager/pkg/client"
 	"github.com/openshift/zero-trust-workload-identity-manager/pkg/controller/status"
@@ -44,6 +45,10 @@ const (
 	ServiceAvailable                 = "ServiceAvailable"
 	RBACAvailable                    = "RBACAvailable"
 	ValidatingWebhookAvailable       = "ValidatingWebhookAvailable"
+
+	// Federation condition names
+	FederationRouteAvailable   = "FederationRouteAvailable"
+	FederationServiceAvailable = "FederationServiceAvailable"
 )
 
 // SpireServerReconciler reconciles a SpireServer object
@@ -64,6 +69,8 @@ type SpireServerReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=create;update
 
 // New returns a new Reconciler instance.
 func New(mgr ctrl.Manager) (*SpireServerReconciler, error) {
@@ -192,6 +199,13 @@ func (r *SpireServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// Reconcile Federation Route (only when federation is configured)
+	if server.Spec.Federation != nil {
+		if err := r.reconcileFederationRoute(ctx, &server, statusMgr, createOnlyMode); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -222,6 +236,7 @@ func (r *SpireServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&rbacv1.Role{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
 		Watches(&rbacv1.RoleBinding{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
 		Watches(&admissionregistrationv1.ValidatingWebhookConfiguration{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
+		Watches(&routev1.Route{}, handler.EnqueueRequestsFromMapFunc(mapFunc), controllerManagedResourcePredicates).
 		Watches(&v1alpha1.ZeroTrustWorkloadIdentityManager{}, handler.EnqueueRequestsFromMapFunc(mapFunc), builder.WithPredicates(utils.ZTWIMSpecChangedPredicate)).
 		Complete(r)
 	if err != nil {

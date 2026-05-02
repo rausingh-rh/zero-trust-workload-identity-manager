@@ -1,0 +1,33 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  trustDomain: apps.cluster-a.example.com
+  clusterName: cluster-a
+  jwtIssuer: https://oidc-discovery-provider.example.com
+  caSubject:
+    country: US
+    organization: ExampleOrg
+    commonName: example-ca
+  persistence:
+    size: 1Gi
+    accessMode: ReadWriteOnce
+  datastore:
+    databaseType: sqlite3
+    connectionString: /run/spire/data/datastore.sqlite3
+  federation:
+    bundleEndpoint:
+      profile: https_web
+      refreshHint: 300
+      httpsWeb:
+        acme:
+          directoryUrl: https://acme-v02.api.letsencrypt.org/directory
+          domainName: spire-federation.apps.cluster-a.example.com
+          email: admin@example.com
+          tosAccepted: "true"
+    federatesWith:
+    - trustDomain: apps.cluster-b.example.com
+      bundleEndpointUrl: https://spire-server-federation-zero-trust-workload-identity-manager.apps.cluster-b.example.com
+      bundleEndpointProfile: https_web
+    managedRoute: "true"
