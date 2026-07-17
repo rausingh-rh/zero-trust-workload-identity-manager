@@ -25,13 +25,15 @@ import (
 const (
 	spireServerStatefulSetSpireServerConfigHashAnnotationKey            = "ztwim.openshift.io/spire-server-config-hash"
 	spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey = "ztwim.openshift.io/spire-controller-manager-config-hash"
+	spireServerStatefulSetUpstreamAgentConfigHashAnnotationKey          = "ztwim.openshift.io/upstream-agent-config-hash"
 	spireServerHealthPort                                               = "server-healthz"
 	spireCtrlMgrHealthPort                                              = "ctrlmgr-healthz"
+	upstreamAgentHealthPort                                             = "agent-healthz"
 )
 
 // reconcileStatefulSet reconciles the Spire Server StatefulSet
-func (r *SpireServerReconciler) reconcileStatefulSet(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, createOnlyMode bool, spireServerConfigMapHash, spireControllerManagerConfigMapHash string) error {
-	sts := GenerateSpireServerStatefulSet(&server.Spec, spireServerConfigMapHash, spireControllerManagerConfigMapHash)
+func (r *SpireServerReconciler) reconcileStatefulSet(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, createOnlyMode bool, spireServerConfigMapHash, spireControllerManagerConfigMapHash, upstreamAgentConfigHash string) error {
+	sts := GenerateSpireServerStatefulSet(&server.Spec, spireServerConfigMapHash, spireControllerManagerConfigMapHash, upstreamAgentConfigHash)
 	if err := controllerutil.SetControllerReference(server, sts, r.scheme); err != nil {
 		r.log.Error(err, "failed to set controller reference on spire server stateful set resource")
 		statusMgr.AddCondition(StatefulSetAvailable, "SpireServerStatefulSetGenerationFailed",
@@ -89,7 +91,8 @@ const (
 
 func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 	spireServerConfigMapHash string,
-	SpireControllerManagerConfigMapHash string) *appsv1.StatefulSet {
+	SpireControllerManagerConfigMapHash string,
+	upstreamAgentConfigHash string) *appsv1.StatefulSet {
 
 	// Generate standardized labels once and reuse them
 	labels := utils.SpireServerLabels(config.Labels)
@@ -146,6 +149,15 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 			},
 		})
 	}
+	podAnnotations := map[string]string{
+		"kubectl.kubernetes.io/default-container":                           "spire-server",
+		spireServerStatefulSetSpireServerConfigHashAnnotationKey:            spireServerConfigMapHash,
+		spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey: SpireControllerManagerConfigMapHash,
+	}
+	if upstreamAgentConfigHash != "" {
+		podAnnotations[spireServerStatefulSetUpstreamAgentConfigHashAnnotationKey] = upstreamAgentConfigHash
+	}
+
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "spire-server",
@@ -160,12 +172,8 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kubectl.kubernetes.io/default-container":                           "spire-server",
-						spireServerStatefulSetSpireServerConfigHashAnnotationKey:            spireServerConfigMapHash,
-						spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey: SpireControllerManagerConfigMapHash,
-					},
-					Labels: labels,
+					Annotations: podAnnotations,
+					Labels:      labels,
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "spire-server",
@@ -264,16 +272,23 @@ func GenerateSpireServerStatefulSet(config *v1alpha1.SpireServerSpec,
 		addUpstreamAuthorityToStatefulSet(sts, config.UpstreamAuthority)
 	}
 
+	if config.AdditionalNodeAttestors != nil && config.AdditionalNodeAttestors.X509pop != nil {
+		addServerX509popAttestorToStatefulSet(sts, config.AdditionalNodeAttestors.X509pop)
+	}
+
 	return sts
 }
 
 func addUpstreamAuthorityToStatefulSet(sts *appsv1.StatefulSet, ua *v1alpha1.UpstreamAuthorityConfig) {
-	if ua.Vault == nil {
-		return
+	if ua.Vault != nil {
+		addVaultUpstreamAuthorityToStatefulSet(sts, ua.Vault)
 	}
+	if ua.Spire != nil {
+		addSpireUpstreamAuthorityToStatefulSet(sts, ua.Spire)
+	}
+}
 
-	v := ua.Vault
-
+func addVaultUpstreamAuthorityToStatefulSet(sts *appsv1.StatefulSet, v *v1alpha1.UpstreamAuthorityVault) {
 	if v.K8sAuth != nil {
 		audience := v.K8sAuth.Audience
 		if audience == "" {
@@ -337,6 +352,216 @@ func addUpstreamAuthorityToStatefulSet(sts *appsv1.StatefulSet, ua *v1alpha1.Ups
 			},
 		)
 	}
+}
+
+// addSpireUpstreamAuthorityToStatefulSet injects the upstream-agent sidecar
+// container and its volumes into the SPIRE server StatefulSet for nested SPIRE.
+func addSpireUpstreamAuthorityToStatefulSet(sts *appsv1.StatefulSet, spire *v1alpha1.UpstreamAuthoritySpire) {
+	// Enable shared PID namespace so the upstream-agent's unix WorkloadAttestor
+	// can resolve the spire-server's process via /proc when it connects to the
+	// Workload API socket. Without this, SO_PEERCRED returns a PID that the
+	// attestor can't look up because containers have separate PID namespaces.
+	sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+
+	// --- Volumes ---
+
+	// emptyDir for Workload API socket sharing between sidecar and spire-server
+	sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+		corev1.Volume{
+			Name:         "upstream-agent-socket",
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+	)
+
+	// emptyDir for upstream-agent key/data persistence
+	sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+		corev1.Volume{
+			Name:         "upstream-agent-data",
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+	)
+
+	// ConfigMap for upstream-agent agent.conf
+	sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+		corev1.Volume{
+			Name: "upstream-agent-config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "upstream-agent-config"},
+				},
+			},
+		},
+	)
+
+	// Attestation-specific volumes
+	if spire.NodeAttestor.X509pop != nil {
+		sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+			corev1.Volume{
+				Name: "x509pop-cert",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: spire.NodeAttestor.X509pop.CertificateSecretName,
+					},
+				},
+			},
+		)
+	}
+
+	if spire.NodeAttestor.K8sPsat != nil {
+		expirationSeconds := int64(7200)
+		sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+			corev1.Volume{
+				Name: "upstream-agent-token",
+				VolumeSource: corev1.VolumeSource{
+					Projected: &corev1.ProjectedVolumeSource{
+						Sources: []corev1.VolumeProjection{
+							{
+								ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+									Audience:          "spire-server",
+									ExpirationSeconds: &expirationSeconds,
+									Path:              "spire-agent",
+								},
+							},
+						},
+					},
+				},
+			},
+		)
+	}
+
+	// Secret for upstream trust bundle (if not using insecure_bootstrap)
+	if spire.TrustBundle.SecretRef != nil {
+		sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+			corev1.Volume{
+				Name: "upstream-bundle",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: spire.TrustBundle.SecretRef.Name,
+						Items: []corev1.KeyToPath{
+							{
+								Key:  spire.TrustBundle.SecretRef.Key,
+								Path: upstreamBundleFileName,
+							},
+						},
+					},
+				},
+			},
+		)
+	}
+
+	// --- spire-server container: mount the socket dir (read-only) ---
+	sts.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+		sts.Spec.Template.Spec.Containers[0].VolumeMounts,
+		corev1.VolumeMount{
+			Name:      "upstream-agent-socket",
+			MountPath: upstreamAgentSocketDir,
+			ReadOnly:  true,
+		},
+	)
+
+	// --- upstream-agent sidecar container ---
+	sidecarVolumeMounts := []corev1.VolumeMount{
+		{Name: "upstream-agent-socket", MountPath: upstreamAgentSocketDir},
+		{Name: "upstream-agent-data", MountPath: upstreamAgentDataDir},
+		{Name: "upstream-agent-config", MountPath: upstreamAgentConfigDir, ReadOnly: true},
+	}
+
+	if spire.NodeAttestor.X509pop != nil {
+		sidecarVolumeMounts = append(sidecarVolumeMounts,
+			corev1.VolumeMount{Name: "x509pop-cert", MountPath: x509popCertMountPath, ReadOnly: true},
+		)
+	}
+
+	if spire.NodeAttestor.K8sPsat != nil {
+		sidecarVolumeMounts = append(sidecarVolumeMounts,
+			corev1.VolumeMount{Name: "upstream-agent-token", MountPath: upstreamAgentTokenMountPath, ReadOnly: true},
+		)
+	}
+
+	if spire.TrustBundle.SecretRef != nil {
+		sidecarVolumeMounts = append(sidecarVolumeMounts,
+			corev1.VolumeMount{
+				Name:      "upstream-bundle",
+				MountPath: upstreamBundleMountPath,
+				ReadOnly:  true,
+			},
+		)
+	}
+
+	sidecar := corev1.Container{
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{
+					"ALL",
+				},
+			},
+			ReadOnlyRootFilesystem: ptr.To(true),
+		},
+		Name:            "upstream-agent",
+		Image:           utils.GetSpireAgentImage(),
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Args:            []string{"-expandEnv", "-config", upstreamAgentConfigDir + "/" + upstreamAgentConfigFile},
+		Env: []corev1.EnvVar{
+			{Name: "PATH", Value: "/opt/spire/bin:/bin"},
+		},
+		Ports: []corev1.ContainerPort{
+			{Name: upstreamAgentHealthPort, ContainerPort: 9983, Protocol: corev1.ProtocolTCP},
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/live", Port: intstr.FromString(upstreamAgentHealthPort)}},
+			InitialDelaySeconds: 15,
+			PeriodSeconds:       60,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready", Port: intstr.FromString(upstreamAgentHealthPort)}},
+			InitialDelaySeconds: 10,
+			PeriodSeconds:       30,
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+		},
+		VolumeMounts: sidecarVolumeMounts,
+	}
+
+	sts.Spec.Template.Spec.Containers = append(sts.Spec.Template.Spec.Containers, sidecar)
+}
+
+// addServerX509popAttestorToStatefulSet mounts the x509pop CA bundle into the
+// SPIRE server container so it can verify downstream agent certificates.
+func addServerX509popAttestorToStatefulSet(sts *appsv1.StatefulSet, x509pop *v1alpha1.ServerX509popAttestorConfig) {
+	sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes,
+		corev1.Volume{
+			Name: "x509pop-server-ca",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: x509pop.CABundleSecretRef.Name,
+					Items: []corev1.KeyToPath{
+						{
+							Key:  x509pop.CABundleSecretRef.Key,
+							Path: x509popServerCAFileName,
+						},
+					},
+				},
+			},
+		},
+	)
+
+	sts.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+		sts.Spec.Template.Spec.Containers[0].VolumeMounts,
+		corev1.VolumeMount{
+			Name:      "x509pop-server-ca",
+			MountPath: x509popServerCAMountPath,
+			ReadOnly:  true,
+		},
+	)
 }
 
 // addFederationConfigurationToStatefulSet adds federation port, volume and mount to the StatefulSet

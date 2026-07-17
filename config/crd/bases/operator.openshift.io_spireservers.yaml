@@ -43,6 +43,42 @@ spec:
             description: SpireServerSpec defines the specifications for configuring
               the SPIRE server.
             properties:
+              additionalNodeAttestors:
+                description: |-
+                  additionalNodeAttestors configures additional NodeAttestor plugins for
+                  this SPIRE server beyond the default k8s_psat. Use this when the server
+                  acts as an upstream for nested SPIRE and needs to attest downstream
+                  agents that use x509pop attestation.
+                properties:
+                  x509pop:
+                    description: |-
+                      x509pop enables the x509pop NodeAttestor on this SPIRE server. This
+                      allows the server to attest agents from downstream clusters that present
+                      a certificate signed by the specified CA. Set this on the upstream/hub
+                      cluster's SpireServer CR.
+                    properties:
+                      caBundleSecretRef:
+                        description: |-
+                          caBundleSecretRef references a Secret containing the CA certificate
+                          used to verify x509pop agent certificates from downstream clusters.
+                          The Secret must be in the operator namespace.
+                        properties:
+                          key:
+                            description: key is the key within the Secret data.
+                            minLength: 1
+                            type: string
+                          name:
+                            description: name is the name of the Secret.
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - caBundleSecretRef
+                    type: object
+                type: object
               affinity:
                 description: |-
                   affinity defines scheduling affinity rules.
@@ -1079,6 +1115,16 @@ spec:
                   This value is used if a specific TTL is not configured for a registration entry.
                 format: duration
                 type: string
+              exportGRPCRoute:
+                default: false
+                description: |-
+                  exportGRPCRoute controls whether the operator creates a passthrough Route
+                  to expose this SPIRE server's gRPC API (port 8081) for cross-cluster
+                  nested SPIRE. When true, downstream clusters can reach this server via
+                  the Route on port 443. Set this to true on the upstream/hub cluster's
+                  SpireServer CR so downstream spoke clusters can connect their
+                  upstream-agent sidecars to it.
+                type: boolean
               federation:
                 description: federation configures SPIRE federation endpoints and
                   relationships
@@ -1486,6 +1532,133 @@ spec:
                     - issuerName
                     - namespace
                     type: object
+                  spire:
+                    description: |-
+                      spire configures the nested SPIRE UpstreamAuthority plugin.
+                      When set, the operator injects an upstream-agent sidecar into the
+                      SPIRE server StatefulSet. This agent attests to a remote upstream
+                      SPIRE server and exposes a Workload API socket that the downstream
+                      SPIRE server uses to obtain its intermediate CA.
+                    properties:
+                      nodeAttestor:
+                        description: |-
+                          nodeAttestor configures the node attestation method used by the
+                          upstream-agent sidecar to prove its identity to the upstream SPIRE server.
+                          Exactly one attestation method must be configured.
+                        properties:
+                          k8sPsat:
+                            description: |-
+                              k8sPsat configures Kubernetes Projected Service Account Token attestation.
+                              The sidecar presents a projected SA token to the upstream SPIRE server,
+                              which validates it via the downstream cluster's TokenReview API.
+                              Requires a kubeconfig Secret on the upstream cluster for cross-cluster
+                              token validation.
+                            properties:
+                              clusterName:
+                                description: |-
+                                  clusterName is the cluster name that must match the cluster entry in
+                                  the upstream SPIRE server's k8s_psat NodeAttestor configuration.
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                            required:
+                            - clusterName
+                            type: object
+                          x509pop:
+                            description: |-
+                              x509pop configures X.509 Certificate Proof of Possession attestation.
+                              The sidecar presents a pre-provisioned certificate to prove its identity
+                              to the upstream SPIRE server. Recommended for cross-cluster deployments
+                              because it requires no cross-cluster API access and is reattestable.
+                            properties:
+                              certificateSecretName:
+                                description: |-
+                                  certificateSecretName is the name of a Secret in the operator namespace
+                                  containing the x509pop agent certificate and private key. The Secret
+                                  must contain two keys:
+                                    - agent.crt: the agent certificate in PEM format (must include
+                                      digitalSignature key usage)
+                                    - agent.key: the agent private key in PEM format
+                                  The certificate must be signed by a CA that the upstream SPIRE server
+                                  trusts (configured in the upstream server's x509pop NodeAttestor
+                                  ca_bundle_path).
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                            required:
+                            - certificateSecretName
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of x509pop or k8sPsat must be set
+                          rule: '(has(self.x509pop) ? 1 : 0) + (has(self.k8sPsat)
+                            ? 1 : 0) == 1'
+                      trustBundle:
+                        description: |-
+                          trustBundle configures how the upstream-agent sidecar obtains the
+                          upstream SPIRE server's trust bundle for initial TLS verification.
+                        properties:
+                          insecureBootstrap:
+                            default: false
+                            description: |-
+                              insecureBootstrap enables Trust On First Use (TOFU) mode for the
+                              upstream-agent sidecar. When true, the sidecar skips server certificate
+                              verification on its first connection and pins the trust bundle received
+                              from the server for subsequent connections.
+                              WARNING: This is vulnerable to man-in-the-middle attacks on the first
+                              connection. Use secretRef for production deployments.
+                            type: boolean
+                          secretRef:
+                            description: |-
+                              secretRef references a Secret containing the upstream SPIRE server's
+                              root CA certificate used for TLS verification during initial connection.
+                              The Secret must be in the operator namespace and contain the CA
+                              certificate in PEM format.
+                            properties:
+                              key:
+                                description: key is the key within the Secret data.
+                                minLength: 1
+                                type: string
+                              name:
+                                description: name is the name of the Secret.
+                                minLength: 1
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: either secretRef must be set or insecureBootstrap
+                            must be true
+                          rule: has(self.secretRef) || self.insecureBootstrap == true
+                        - message: secretRef and insecureBootstrap are mutually exclusive
+                          rule: '!has(self.secretRef) || self.insecureBootstrap !=
+                            true'
+                      upstreamServerAddress:
+                        description: |-
+                          upstreamServerAddress is the hostname of the upstream SPIRE server's
+                          OpenShift Route (e.g., spire-server-ns.apps.hub-cluster.example.com).
+                          The upstream-agent sidecar connects to this address to attest and
+                          obtain its SVID.
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                      upstreamServerPort:
+                        default: 443
+                        description: |-
+                          upstreamServerPort is the port of the upstream SPIRE server Route.
+                          Use 443 when connecting through an OpenShift passthrough Route.
+                          Use 8081 when connecting through a LoadBalancer or ClusterIP Service.
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
+                    required:
+                    - nodeAttestor
+                    - trustBundle
+                    - upstreamServerAddress
+                    type: object
                   vault:
                     description: vault configures the HashiCorp Vault UpstreamAuthority
                       plugin.
@@ -1558,9 +1731,9 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: exactly one of certManager or vault must be set
-                  rule: (has(self.certManager) && !has(self.vault)) || (!has(self.certManager)
-                    && has(self.vault))
+                - message: exactly one of certManager, vault, or spire must be set
+                  rule: '(has(self.certManager) ? 1 : 0) + (has(self.vault) ? 1 :
+                    0) + (has(self.spire) ? 1 : 0) == 1'
             required:
             - caSubject
             - datastore

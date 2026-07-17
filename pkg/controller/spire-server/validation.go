@@ -166,15 +166,57 @@ func validateUpstreamAuthority(ua *v1alpha1.UpstreamAuthorityConfig) error {
 
 	cmSet := ua.CertManager != nil
 	vaultSet := ua.Vault != nil
+	spireSet := ua.Spire != nil
 
-	if cmSet == vaultSet {
-		return fmt.Errorf("exactly one of certManager or vault must be set")
+	setCount := 0
+	if cmSet {
+		setCount++
+	}
+	if vaultSet {
+		setCount++
+	}
+	if spireSet {
+		setCount++
+	}
+
+	if setCount != 1 {
+		return fmt.Errorf("exactly one of certManager, vault, or spire must be set")
 	}
 
 	if cmSet {
 		return validateUpstreamAuthorityCertManager(ua.CertManager)
 	}
-	return validateUpstreamAuthorityVault(ua.Vault)
+	if vaultSet {
+		return validateUpstreamAuthorityVault(ua.Vault)
+	}
+	return validateUpstreamAuthoritySpire(ua.Spire)
+}
+
+func validateUpstreamAuthoritySpire(spire *v1alpha1.UpstreamAuthoritySpire) error {
+	if spire.UpstreamServerAddress == "" {
+		return fmt.Errorf("spire.upstreamServerAddress is required")
+	}
+	if !spire.TrustBundle.InsecureBootstrap && spire.TrustBundle.SecretRef == nil {
+		return fmt.Errorf("spire.trustBundle: either secretRef must be set or insecureBootstrap must be true")
+	}
+	if spire.TrustBundle.InsecureBootstrap && spire.TrustBundle.SecretRef != nil {
+		return fmt.Errorf("spire.trustBundle: secretRef and insecureBootstrap are mutually exclusive")
+	}
+
+	x509Set := spire.NodeAttestor.X509pop != nil
+	psatSet := spire.NodeAttestor.K8sPsat != nil
+
+	if x509Set == psatSet {
+		return fmt.Errorf("spire.nodeAttestor: exactly one of x509pop or k8sPsat must be set")
+	}
+
+	if x509Set && spire.NodeAttestor.X509pop.CertificateSecretName == "" {
+		return fmt.Errorf("spire.nodeAttestor.x509pop.certificateSecretName is required")
+	}
+	if psatSet && spire.NodeAttestor.K8sPsat.ClusterName == "" {
+		return fmt.Errorf("spire.nodeAttestor.k8sPsat.clusterName is required")
+	}
+	return nil
 }
 
 func validateUpstreamAuthorityCertManager(cm *v1alpha1.UpstreamAuthorityCertManager) error {

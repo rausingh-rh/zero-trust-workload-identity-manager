@@ -2022,3 +2022,197 @@ func TestGenerateServerConfMap_CertManagerDefaults(t *testing.T) {
 		t.Errorf("Expected default issuer_group %q, got %v", "cert-manager.io", pd["issuer_group"])
 	}
 }
+
+func TestGenerateServerConfMap_WithSpireUpstreamAuthority(t *testing.T) {
+	config := createValidConfig()
+	config.UpstreamAuthority = &v1alpha1.UpstreamAuthorityConfig{
+		Spire: &v1alpha1.UpstreamAuthoritySpire{
+			UpstreamServerAddress: "spire-server-ns.apps.hub.example.com",
+			UpstreamServerPort:    443,
+			TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+				SecretRef: &v1alpha1.SecretKeyReference{
+					Name: "upstream-bundle",
+					Key:  "bundle.crt",
+				},
+			},
+			NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+				X509pop: &v1alpha1.UpstreamX509popConfig{
+					CertificateSecretName: "x509pop-agent-cert",
+				},
+			},
+		},
+	}
+
+	ztwim := &v1alpha1.ZeroTrustWorkloadIdentityManager{
+		Spec: v1alpha1.ZeroTrustWorkloadIdentityManagerSpec{
+			TrustDomain:     "example.com",
+			BundleConfigMap: "spire-bundle",
+			ClusterName:     "test-cluster",
+		},
+	}
+
+	confMap := generateServerConfMap(config, ztwim)
+
+	plugins, ok := confMap["plugins"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Failed to get plugins section")
+	}
+
+	ua, ok := plugins["UpstreamAuthority"].([]map[string]interface{})
+	if !ok || len(ua) == 0 {
+		t.Fatal("Expected UpstreamAuthority plugin block")
+	}
+
+	spirePlugin, ok := ua[0]["spire"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected spire plugin")
+	}
+
+	pd, ok := spirePlugin["plugin_data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected plugin_data in spire plugin")
+	}
+
+	if pd["server_address"] != "spire-server-ns.apps.hub.example.com" {
+		t.Errorf("Expected server_address %q, got %v", "spire-server-ns.apps.hub.example.com", pd["server_address"])
+	}
+	if pd["server_port"] != "443" {
+		t.Errorf("Expected server_port %q, got %v", "443", pd["server_port"])
+	}
+	if pd["workload_api_socket"] != "/run/spire/upstream-agent/spire-agent.sock" {
+		t.Errorf("Expected socket path %q, got %v", "/run/spire/upstream-agent/spire-agent.sock", pd["workload_api_socket"])
+	}
+}
+
+func TestGenerateUpstreamAgentConfigMap(t *testing.T) {
+	t.Run("Generates valid ConfigMap with SecretRef trust bundle", func(t *testing.T) {
+		config := createValidConfig()
+		config.UpstreamAuthority = &v1alpha1.UpstreamAuthorityConfig{
+			Spire: &v1alpha1.UpstreamAuthoritySpire{
+				UpstreamServerAddress: "spire.hub.example.com",
+				UpstreamServerPort:    443,
+				TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+					SecretRef: &v1alpha1.SecretKeyReference{
+						Name: "upstream-bundle",
+						Key:  "bundle.crt",
+					},
+				},
+				NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+					X509pop: &v1alpha1.UpstreamX509popConfig{
+						CertificateSecretName: "x509pop-cert",
+					},
+				},
+			},
+		}
+
+		ztwim := &v1alpha1.ZeroTrustWorkloadIdentityManager{
+			Spec: v1alpha1.ZeroTrustWorkloadIdentityManagerSpec{
+				TrustDomain:     "example.com",
+				BundleConfigMap: "spire-bundle",
+				ClusterName:     "test-cluster",
+			},
+		}
+
+		cm, err := generateUpstreamAgentConfigMap(config, ztwim)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if cm.Name != "upstream-agent-config" {
+			t.Errorf("Expected name %q, got %q", "upstream-agent-config", cm.Name)
+		}
+
+		agentConf, ok := cm.Data["agent.conf"]
+		if !ok {
+			t.Fatal("agent.conf key not found in ConfigMap data")
+		}
+
+		if agentConf == "" {
+			t.Fatal("agent.conf is empty")
+		}
+	})
+
+	t.Run("Generates valid ConfigMap with insecure bootstrap", func(t *testing.T) {
+		config := createValidConfig()
+		config.UpstreamAuthority = &v1alpha1.UpstreamAuthorityConfig{
+			Spire: &v1alpha1.UpstreamAuthoritySpire{
+				UpstreamServerAddress: "spire.hub.example.com",
+				TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+					InsecureBootstrap: true,
+				},
+				NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+					X509pop: &v1alpha1.UpstreamX509popConfig{
+						CertificateSecretName: "x509pop-cert",
+					},
+				},
+			},
+		}
+
+		ztwim := &v1alpha1.ZeroTrustWorkloadIdentityManager{
+			Spec: v1alpha1.ZeroTrustWorkloadIdentityManagerSpec{
+				TrustDomain:     "example.com",
+				BundleConfigMap: "spire-bundle",
+				ClusterName:     "test-cluster",
+			},
+		}
+
+		cm, err := generateUpstreamAgentConfigMap(config, ztwim)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		agentConf := cm.Data["agent.conf"]
+		if agentConf == "" {
+			t.Fatal("agent.conf is empty")
+		}
+	})
+
+	t.Run("Returns error when spire config is nil", func(t *testing.T) {
+		config := createValidConfig()
+		ztwim := &v1alpha1.ZeroTrustWorkloadIdentityManager{
+			Spec: v1alpha1.ZeroTrustWorkloadIdentityManagerSpec{
+				TrustDomain: "example.com",
+			},
+		}
+
+		_, err := generateUpstreamAgentConfigMap(config, ztwim)
+		if err == nil {
+			t.Fatal("Expected error when spire config is nil")
+		}
+	})
+
+	t.Run("Uses default port when not specified", func(t *testing.T) {
+		config := createValidConfig()
+		config.UpstreamAuthority = &v1alpha1.UpstreamAuthorityConfig{
+			Spire: &v1alpha1.UpstreamAuthoritySpire{
+				UpstreamServerAddress: "spire.hub.example.com",
+				TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+					InsecureBootstrap: true,
+				},
+				NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+					X509pop: &v1alpha1.UpstreamX509popConfig{
+						CertificateSecretName: "x509pop-cert",
+					},
+				},
+			},
+		}
+
+		ztwim := &v1alpha1.ZeroTrustWorkloadIdentityManager{
+			Spec: v1alpha1.ZeroTrustWorkloadIdentityManagerSpec{
+				TrustDomain:     "example.com",
+				BundleConfigMap: "spire-bundle",
+				ClusterName:     "test-cluster",
+			},
+		}
+
+		cm, err := generateUpstreamAgentConfigMap(config, ztwim)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		agentConf := cm.Data["agent.conf"]
+		if agentConf == "" {
+			t.Fatal("agent.conf is empty")
+		}
+	})
+}

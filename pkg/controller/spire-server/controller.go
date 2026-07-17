@@ -40,6 +40,7 @@ const (
 	ServerConfigMapAvailable         = "ServerConfigMapAvailable"
 	ControllerManagerConfigAvailable = "ControllerManagerConfigAvailable"
 	BundleConfigAvailable            = "BundleConfigAvailable"
+	UpstreamAgentConfigAvailable     = "UpstreamAgentConfigAvailable"
 	TTLConfigurationValid            = "TTLConfigurationValid"
 	ConfigurationValid               = "ConfigurationValid"
 	ServiceAccountAvailable          = "ServiceAccountAvailable"
@@ -47,6 +48,7 @@ const (
 	RBACAvailable                    = "RBACAvailable"
 	ValidatingWebhookAvailable       = "ValidatingWebhookAvailable"
 	RouteAvailable                   = "RouteAvailable"
+	GRPCRouteAvailable               = "GRPCRouteAvailable"
 )
 
 // SpireServerReconciler reconciles a SpireServer object
@@ -175,8 +177,23 @@ func (r *SpireServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// Reconcile upstream-agent ConfigMap (only when nested SPIRE is configured)
+	var upstreamAgentConfigHash string
+	if server.Spec.UpstreamAuthority != nil && server.Spec.UpstreamAuthority.Spire != nil {
+		var err error
+		upstreamAgentConfigHash, err = r.reconcileUpstreamAgentConfigMap(ctx, &server, statusMgr, &ztwim, createOnlyMode)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		// Clean up upstream-agent ConfigMap if nested SPIRE is no longer configured
+		if err := r.cleanupUpstreamAgentConfigMap(ctx); err != nil {
+			r.log.Error(err, "failed to cleanup upstream-agent ConfigMap")
+		}
+	}
+
 	// Reconcile StatefulSet
-	if err := r.reconcileStatefulSet(ctx, &server, statusMgr, createOnlyMode, spireServerConfigMapHash, spireControllerManagerConfigMapHash); err != nil {
+	if err := r.reconcileStatefulSet(ctx, &server, statusMgr, createOnlyMode, spireServerConfigMapHash, spireControllerManagerConfigMapHash, upstreamAgentConfigHash); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -325,6 +342,8 @@ func needsUpdate(current, desired appsv1.StatefulSet) bool {
 	if current.Spec.Template.Annotations[spireServerStatefulSetSpireServerConfigHashAnnotationKey] != desired.Spec.Template.Annotations[spireServerStatefulSetSpireServerConfigHashAnnotationKey] {
 		return true
 	} else if current.Spec.Template.Annotations[spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey] != desired.Spec.Template.Annotations[spireServerStatefulSetSpireControllerManagerConfigHashAnnotationKey] {
+		return true
+	} else if current.Spec.Template.Annotations[spireServerStatefulSetUpstreamAgentConfigHashAnnotationKey] != desired.Spec.Template.Annotations[spireServerStatefulSetUpstreamAgentConfigHashAnnotationKey] {
 		return true
 	}
 	return utils.ResourceNeedsUpdate(&current, &desired)

@@ -31,6 +31,7 @@ const (
 	pluginNameUpstreamAuthority = "UpstreamAuthority"
 	pluginNameCertManager       = "cert-manager"
 	pluginNameVault             = "vault"
+	pluginNameSpire             = "spire"
 
 	// Upstream Authority defaults
 	defaultIssuerKind      = "Issuer"
@@ -42,6 +43,25 @@ const (
 	vaultTokenFileName     = "vault"
 	upstreamCAMountPath    = "/run/spire/upstream-ca"
 	upstreamCACertFileName = "ca.crt"
+
+	// Nested SPIRE (upstream-agent sidecar) paths
+	upstreamAgentSocketDir     = "/run/spire/upstream-agent"
+	upstreamAgentSocketName    = "spire-agent.sock"
+	upstreamAgentDataDir       = "/run/spire/upstream-agent-data"
+	upstreamAgentConfigDir     = "/run/spire/upstream-agent-config"
+	upstreamAgentConfigFile    = "agent.conf"
+	upstreamBundleMountPath    = "/run/spire/upstream-bundle"
+	upstreamBundleFileName     = "bundle.crt"
+	x509popCertMountPath       = "/run/spire/x509pop-cert"
+	x509popCertFileName        = "agent.crt"
+	x509popKeyFileName         = "agent.key"
+	upstreamAgentTokenMountPath = "/var/run/secrets/tokens"
+	upstreamAgentTokenFileName  = "spire-agent"
+	defaultUpstreamServerPort   = int32(443)
+
+	// Server-side x509pop NodeAttestor paths (hub cluster)
+	x509popServerCAMountPath = "/run/spire/x509pop-ca"
+	x509popServerCAFileName  = "ca-bundle.crt"
 )
 
 type ControllerManagerConfigYAML struct {
@@ -219,6 +239,88 @@ func (r *SpireServerReconciler) reconcileSpireBundleConfigMap(ctx context.Contex
 	return nil
 }
 
+// reconcileUpstreamAgentConfigMap reconciles the upstream-agent sidecar ConfigMap
+// for nested SPIRE topology. Returns the config hash for StatefulSet rollout triggering.
+func (r *SpireServerReconciler) reconcileUpstreamAgentConfigMap(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, ztwim *v1alpha1.ZeroTrustWorkloadIdentityManager, createOnlyMode bool) (string, error) {
+	cm, err := generateUpstreamAgentConfigMap(&server.Spec, ztwim)
+	if err != nil {
+		r.log.Error(err, "failed to generate upstream-agent config map")
+		statusMgr.AddCondition(UpstreamAgentConfigAvailable, "UpstreamAgentConfigMapGenerationFailed",
+			err.Error(),
+			metav1.ConditionFalse)
+		return "", err
+	}
+
+	if err = controllerutil.SetControllerReference(server, cm, r.scheme); err != nil {
+		r.log.Error(err, "failed to set controller reference on upstream-agent config")
+		statusMgr.AddCondition(UpstreamAgentConfigAvailable, "UpstreamAgentConfigMapGenerationFailed",
+			err.Error(),
+			metav1.ConditionFalse)
+		return "", err
+	}
+
+	var existingCM corev1.ConfigMap
+	err = r.ctrlClient.Get(ctx, types.NamespacedName{Name: cm.Name, Namespace: cm.Namespace}, &existingCM)
+	if err != nil && kerrors.IsNotFound(err) {
+		if err = r.ctrlClient.Create(ctx, cm); err != nil {
+			if conflictErr := utils.HandleCreateConflict(err, cm, r.log, statusMgr, UpstreamAgentConfigAvailable); conflictErr != nil {
+				return "", conflictErr
+			}
+			statusMgr.AddCondition(UpstreamAgentConfigAvailable, "UpstreamAgentConfigMapCreationFailed",
+				err.Error(),
+				metav1.ConditionFalse)
+			return "", fmt.Errorf("failed to create upstream-agent ConfigMap: %w", err)
+		}
+		r.log.Info("Created upstream-agent ConfigMap")
+	} else if err == nil {
+		if existingCM.Data[upstreamAgentConfigFile] != cm.Data[upstreamAgentConfigFile] {
+			if createOnlyMode {
+				r.log.Info("Skipping upstream-agent ConfigMap update due to create-only mode")
+			} else {
+				cm.ResourceVersion = existingCM.ResourceVersion
+				if err = r.ctrlClient.Update(ctx, cm); err != nil {
+					statusMgr.AddCondition(UpstreamAgentConfigAvailable, "UpstreamAgentConfigMapUpdateFailed",
+						err.Error(),
+						metav1.ConditionFalse)
+					return "", fmt.Errorf("failed to update upstream-agent ConfigMap: %w", err)
+				}
+				r.log.Info("Updated upstream-agent ConfigMap")
+			}
+		}
+	} else {
+		r.log.Error(err, "failed to get upstream-agent config map")
+		statusMgr.AddCondition(UpstreamAgentConfigAvailable, "UpstreamAgentConfigMapGetFailed",
+			err.Error(),
+			metav1.ConditionFalse)
+		return "", err
+	}
+
+	statusMgr.AddCondition(UpstreamAgentConfigAvailable, "UpstreamAgentConfigMapCreated",
+		"upstream-agent config map resources applied",
+		metav1.ConditionTrue)
+
+	return generateConfigHashFromString(cm.Data[upstreamAgentConfigFile]), nil
+}
+
+// cleanupUpstreamAgentConfigMap removes the upstream-agent ConfigMap when
+// nested SPIRE is no longer configured. This prevents orphaned resources
+// when a user removes spec.upstreamAuthority.spire from the CR.
+func (r *SpireServerReconciler) cleanupUpstreamAgentConfigMap(ctx context.Context) error {
+	var cm corev1.ConfigMap
+	err := r.ctrlClient.Get(ctx, types.NamespacedName{
+		Name:      "upstream-agent-config",
+		Namespace: utils.GetOperatorNamespace(),
+	}, &cm)
+	if err != nil {
+		if kerrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	r.log.Info("Deleting orphaned upstream-agent ConfigMap (nested SPIRE no longer configured)")
+	return r.ctrlClient.Delete(ctx, &cm)
+}
+
 // generateSpireServerConfigMap generates the spire-server ConfigMap
 func generateSpireServerConfigMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.ZeroTrustWorkloadIdentityManager) (*corev1.ConfigMap, error) {
 	if config == nil {
@@ -351,6 +453,20 @@ func generateServerConfMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.Zer
 		serverSection["federation"] = generateFederationConfig(config.Federation)
 	}
 
+	// Append additional NodeAttestors (e.g., x509pop for upstream/hub servers)
+	if config.AdditionalNodeAttestors != nil && config.AdditionalNodeAttestors.X509pop != nil {
+		plugins := configMap["plugins"].(map[string]interface{})
+		nodeAttestors := plugins["NodeAttestor"].([]map[string]interface{})
+		nodeAttestors = append(nodeAttestors, map[string]interface{}{
+			"x509pop": map[string]interface{}{
+				"plugin_data": map[string]interface{}{
+					"ca_bundle_path": x509popServerCAMountPath + "/" + x509popServerCAFileName,
+				},
+			},
+		})
+		plugins["NodeAttestor"] = nodeAttestors
+	}
+
 	if config.UpstreamAuthority != nil {
 		if uaPlugin := buildUpstreamAuthorityPlugin(config.UpstreamAuthority); uaPlugin != nil {
 			plugins := configMap["plugins"].(map[string]interface{})
@@ -380,7 +496,32 @@ func buildUpstreamAuthorityPlugin(ua *v1alpha1.UpstreamAuthorityConfig) []map[st
 			},
 		}
 	}
+	if ua.Spire != nil {
+		return []map[string]interface{}{
+			{
+				pluginNameSpire: map[string]interface{}{
+					"plugin_data": buildSpirePluginData(ua.Spire),
+				},
+			},
+		}
+	}
 	return nil
+}
+
+// buildSpirePluginData builds the UpstreamAuthority "spire" plugin config.
+// The plugin makes two connections:
+//  1. Workload API socket (local emptyDir) -- to get the SVID for authentication
+//  2. gRPC to server_address:server_port (upstream Route) -- to request intermediate CA signing
+func buildSpirePluginData(spire *v1alpha1.UpstreamAuthoritySpire) map[string]interface{} {
+	serverPort := spire.UpstreamServerPort
+	if serverPort == 0 {
+		serverPort = defaultUpstreamServerPort
+	}
+	return map[string]interface{}{
+		"server_address":      spire.UpstreamServerAddress,
+		"server_port":         fmt.Sprintf("%d", serverPort),
+		"workload_api_socket": upstreamAgentSocketDir + "/" + upstreamAgentSocketName,
+	}
 }
 
 func buildCertManagerPluginData(cm *v1alpha1.UpstreamAuthorityCertManager) map[string]interface{} {
@@ -669,4 +810,112 @@ func generateSpireBundleConfigMap(config *v1alpha1.SpireServerSpec, ztwim *v1alp
 			Labels:    utils.SpireServerLabels(config.Labels),
 		},
 	}, nil
+}
+
+// generateUpstreamAgentConfigMap generates the ConfigMap containing the
+// upstream-agent sidecar's agent.conf for nested SPIRE topology.
+func generateUpstreamAgentConfigMap(config *v1alpha1.SpireServerSpec, ztwim *v1alpha1.ZeroTrustWorkloadIdentityManager) (*corev1.ConfigMap, error) {
+	if config.UpstreamAuthority == nil || config.UpstreamAuthority.Spire == nil {
+		return nil, errors.New("spire upstream authority config is nil")
+	}
+	if ztwim.Spec.TrustDomain == "" {
+		return nil, errors.New("trust_domain is empty")
+	}
+
+	spire := config.UpstreamAuthority.Spire
+
+	serverPort := spire.UpstreamServerPort
+	if serverPort == 0 {
+		serverPort = defaultUpstreamServerPort
+	}
+
+	agentConf := buildUpstreamAgentConfMap(spire, ztwim.Spec.TrustDomain, serverPort)
+	confJSON, err := marshalToJSON(agentConf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal upstream-agent config: %w", err)
+	}
+
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "upstream-agent-config",
+			Namespace: utils.GetOperatorNamespace(),
+			Labels:    utils.SpireServerLabels(config.Labels),
+		},
+		Data: map[string]string{
+			upstreamAgentConfigFile: string(confJSON),
+		},
+	}, nil
+}
+
+// buildUpstreamAgentConfMap builds the agent.conf for the upstream-agent sidecar.
+func buildUpstreamAgentConfMap(spire *v1alpha1.UpstreamAuthoritySpire, trustDomain string, serverPort int32) map[string]interface{} {
+	agentSection := map[string]interface{}{
+		"data_dir":       upstreamAgentDataDir,
+		"log_level":      "info",
+		"server_address": spire.UpstreamServerAddress,
+		"server_port":    fmt.Sprintf("%d", serverPort),
+		"socket_path":    upstreamAgentSocketDir + "/" + upstreamAgentSocketName,
+		"trust_domain":   trustDomain,
+	}
+
+	if spire.TrustBundle.InsecureBootstrap {
+		agentSection["insecure_bootstrap"] = true
+	} else if spire.TrustBundle.SecretRef != nil {
+		agentSection["trust_bundle_path"] = upstreamBundleMountPath + "/" + upstreamBundleFileName
+	}
+
+	var nodeAttestor []map[string]interface{}
+
+	if spire.NodeAttestor.X509pop != nil {
+		nodeAttestor = []map[string]interface{}{
+			{
+				"x509pop": map[string]interface{}{
+					"plugin_data": map[string]interface{}{
+						"private_key_path": x509popCertMountPath + "/" + x509popKeyFileName,
+						"certificate_path": x509popCertMountPath + "/" + x509popCertFileName,
+					},
+				},
+			},
+		}
+	} else if spire.NodeAttestor.K8sPsat != nil {
+		nodeAttestor = []map[string]interface{}{
+			{
+				"k8s_psat": map[string]interface{}{
+					"plugin_data": map[string]interface{}{
+						"cluster": spire.NodeAttestor.K8sPsat.ClusterName,
+					},
+				},
+			},
+		}
+	}
+
+	return map[string]interface{}{
+		"agent": agentSection,
+		"health_checks": map[string]interface{}{
+			"bind_address":     "0.0.0.0",
+			"bind_port":        "9983",
+			"listener_enabled": true,
+			"live_path":        "/live",
+			"ready_path":       "/ready",
+		},
+		"plugins": map[string]interface{}{
+			"KeyManager": []map[string]interface{}{
+				{
+					"disk": map[string]interface{}{
+						"plugin_data": map[string]interface{}{
+							"directory": upstreamAgentDataDir,
+						},
+					},
+				},
+			},
+			"NodeAttestor":    nodeAttestor,
+			"WorkloadAttestor": []map[string]interface{}{
+				{
+					"unix": map[string]interface{}{
+						"plugin_data": map[string]interface{}{},
+					},
+				},
+			},
+		},
+	}
 }

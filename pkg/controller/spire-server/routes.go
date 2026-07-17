@@ -88,8 +88,45 @@ func checkFederationRouteConflict(current, desired *routev1.Route) bool {
 	return !equality.Semantic.DeepEqual(current.Spec, desired.Spec) || !equality.Semantic.DeepEqual(current.Labels, desired.Labels)
 }
 
+// generateGRPCRoute creates a passthrough Route to expose the SPIRE server's
+// gRPC API for cross-cluster nested SPIRE. Downstream clusters connect to
+// this Route on port 443, which forwards to the server's gRPC port (8081).
+func generateGRPCRoute(server *v1alpha1.SpireServer) *routev1.Route {
+	labels := utils.SpireServerLabels(server.Spec.Labels)
+
+	return &routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spire-server-grpc",
+			Namespace: utils.OperatorNamespace,
+			Labels:    labels,
+		},
+		Spec: routev1.RouteSpec{
+			To: routev1.RouteTargetReference{
+				Kind:   "Service",
+				Name:   "spire-server",
+				Weight: ptr.To(int32(100)),
+			},
+			Port: &routev1.RoutePort{
+				TargetPort: intstr.FromString("grpc"),
+			},
+			TLS: &routev1.TLSConfig{
+				Termination:                   routev1.TLSTerminationPassthrough,
+				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyNone,
+			},
+			WildcardPolicy: routev1.WildcardPolicyNone,
+		},
+	}
+}
+
 // reconcileRoute creates/updates route when managedRoute is enabled else sets status to disabled
 func (r *SpireServerReconciler) reconcileRoute(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, ztwim *v1alpha1.ZeroTrustWorkloadIdentityManager, createOnlyMode bool) error {
+	// Reconcile gRPC Route for cross-cluster nested SPIRE
+	if server.Spec.ExportGRPCRoute {
+		if err := r.reconcileGRPCRoute(ctx, server, statusMgr, createOnlyMode); err != nil {
+			return err
+		}
+	}
+
 	// Check if federation is configured
 	if server.Spec.Federation == nil {
 		// No federation configured - don't manage route, don't set status
@@ -168,6 +205,65 @@ func (r *SpireServerReconciler) reconcileRoute(ctx context.Context, server *v1al
 		statusMgr.AddCondition(RouteAvailable, "FederationRouteDisabled",
 			"Federation managed route disabled",
 			metav1.ConditionFalse)
+	}
+
+	return nil
+}
+
+// reconcileGRPCRoute creates/updates the passthrough Route for cross-cluster
+// nested SPIRE gRPC access.
+func (r *SpireServerReconciler) reconcileGRPCRoute(ctx context.Context, server *v1alpha1.SpireServer, statusMgr *status.Manager, createOnlyMode bool) error {
+	route := generateGRPCRoute(server)
+
+	var existingRoute routev1.Route
+	err := r.ctrlClient.Get(ctx, types.NamespacedName{
+		Name:      route.Name,
+		Namespace: route.Namespace,
+	}, &existingRoute)
+	if err != nil {
+		if kerrors.IsNotFound(err) {
+			if err = r.ctrlClient.Create(ctx, route); err != nil {
+				if conflictErr := utils.HandleCreateConflict(err, route, r.log, statusMgr, GRPCRouteAvailable); conflictErr != nil {
+					return conflictErr
+				}
+				r.log.Error(err, "Failed to create gRPC route")
+				statusMgr.AddCondition(GRPCRouteAvailable, "GRPCRouteCreationFailed",
+					err.Error(),
+					metav1.ConditionFalse)
+				return err
+			}
+
+			statusMgr.AddCondition(GRPCRouteAvailable, "GRPCRouteCreated",
+				"gRPC passthrough route created for cross-cluster nested SPIRE",
+				metav1.ConditionTrue)
+
+			r.log.Info("Created gRPC route", "Namespace", route.Namespace, "Name", route.Name)
+		} else {
+			r.log.Error(err, "Failed to get existing gRPC route")
+			statusMgr.AddCondition(GRPCRouteAvailable, "GRPCRouteRetrievalFailed",
+				err.Error(),
+				metav1.ConditionFalse)
+			return err
+		}
+	} else if checkFederationRouteConflict(&existingRoute, route) {
+		if createOnlyMode {
+			r.log.Info("Skipping gRPC route update due to create-only mode")
+		} else {
+			route.ResourceVersion = existingRoute.ResourceVersion
+			err = r.ctrlClient.Update(ctx, route)
+			if err != nil {
+				statusMgr.AddCondition(GRPCRouteAvailable, "GRPCRouteUpdateFailed",
+					err.Error(),
+					metav1.ConditionFalse)
+				return err
+			}
+
+			statusMgr.AddCondition(GRPCRouteAvailable, "GRPCRouteUpdated",
+				"gRPC passthrough route updated",
+				metav1.ConditionTrue)
+
+			r.log.Info("Updated gRPC route", "Namespace", route.Namespace, "Name", route.Name)
+		}
 	}
 
 	return nil

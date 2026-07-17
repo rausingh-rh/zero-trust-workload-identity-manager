@@ -42,7 +42,7 @@ func TestGenerateSpireServerStatefulSet(t *testing.T) {
 	controllerConfigHash := "test-controller-hash"
 
 	// Call the function
-	statefulSet := GenerateSpireServerStatefulSet(config, serverConfigHash, controllerConfigHash)
+	statefulSet := GenerateSpireServerStatefulSet(config, serverConfigHash, controllerConfigHash, "")
 
 	// Test basic metadata
 	t.Run("Validates StatefulSet metadata", func(t *testing.T) {
@@ -242,7 +242,7 @@ func TestGenerateSpireServerStatefulSet(t *testing.T) {
 			},
 		}
 
-		customStatefulSet := GenerateSpireServerStatefulSet(configWithPersistence, serverConfigHash, controllerConfigHash)
+		customStatefulSet := GenerateSpireServerStatefulSet(configWithPersistence, serverConfigHash, controllerConfigHash, "")
 		pvc := customStatefulSet.Spec.VolumeClaimTemplates[0]
 
 		// Check AccessMode
@@ -276,7 +276,7 @@ func TestGenerateSpireServerStatefulSet(t *testing.T) {
 			},
 		}
 
-		rwxStatefulSet := GenerateSpireServerStatefulSet(configWithRWX, serverConfigHash, controllerConfigHash)
+		rwxStatefulSet := GenerateSpireServerStatefulSet(configWithRWX, serverConfigHash, controllerConfigHash, "")
 		pvc := rwxStatefulSet.Spec.VolumeClaimTemplates[0]
 
 		if len(pvc.Spec.AccessModes) != 1 || pvc.Spec.AccessModes[0] != corev1.ReadWriteMany {
@@ -295,7 +295,7 @@ func TestGenerateSpireServerStatefulSet(t *testing.T) {
 			},
 		}
 
-		storageClassStatefulSet := GenerateSpireServerStatefulSet(configWithCustomStorageClass, serverConfigHash, controllerConfigHash)
+		storageClassStatefulSet := GenerateSpireServerStatefulSet(configWithCustomStorageClass, serverConfigHash, controllerConfigHash, "")
 		pvc := storageClassStatefulSet.Spec.VolumeClaimTemplates[0]
 
 		// Verify AccessMode is set correctly
@@ -325,7 +325,7 @@ func TestGenerateSpireServerStatefulSet(t *testing.T) {
 			},
 		}
 
-		statefulSet := GenerateSpireServerStatefulSet(configWithNilLabels, serverConfigHash, controllerConfigHash)
+		statefulSet := GenerateSpireServerStatefulSet(configWithNilLabels, serverConfigHash, controllerConfigHash, "")
 
 		// Verify we have all standard labels
 		expectedLabels := utils.SpireServerLabels(nil)
@@ -349,7 +349,7 @@ func TestGenerateSpireServerStatefulSet(t *testing.T) {
 			},
 		}
 
-		statefulSet := GenerateSpireServerStatefulSet(configWithEmptyLabels, serverConfigHash, controllerConfigHash)
+		statefulSet := GenerateSpireServerStatefulSet(configWithEmptyLabels, serverConfigHash, controllerConfigHash, "")
 
 		// Verify we have all standard labels
 		expectedLabels := utils.SpireServerLabels(nil)
@@ -396,7 +396,7 @@ func TestGenerateSpireServerStatefulSetWithTLSSecret(t *testing.T) {
 			},
 		}
 
-		statefulSet := GenerateSpireServerStatefulSet(config, serverConfigHash, controllerConfigHash)
+		statefulSet := GenerateSpireServerStatefulSet(config, serverConfigHash, controllerConfigHash, "")
 		podSpec := statefulSet.Spec.Template.Spec
 
 		// Check that we have 6 volumes (5 base + 1 TLS)
@@ -469,7 +469,7 @@ func TestGenerateSpireServerStatefulSetWithTLSSecret(t *testing.T) {
 			},
 		}
 
-		statefulSet := GenerateSpireServerStatefulSet(config, serverConfigHash, controllerConfigHash)
+		statefulSet := GenerateSpireServerStatefulSet(config, serverConfigHash, controllerConfigHash, "")
 		podSpec := statefulSet.Spec.Template.Spec
 
 		// Should have 5 volumes (no TLS volume)
@@ -810,7 +810,7 @@ func TestGenerateSpireServerStatefulSetWithFederation(t *testing.T) {
 				Federation: tt.federation,
 			}
 
-			sts := GenerateSpireServerStatefulSet(config, "test-hash", "test-hash")
+			sts := GenerateSpireServerStatefulSet(config, "test-hash", "test-hash", "")
 
 			// Check volume count
 			if len(sts.Spec.Template.Spec.Volumes) != tt.expectedVolumeCount {
@@ -944,7 +944,7 @@ func TestReconcileStatefulSet(t *testing.T) {
 			fakeClient.UpdateReturns(tt.updateError)
 
 			statusMgr := status.NewManager(fakeClient)
-			err := reconciler.reconcileStatefulSet(context.Background(), server, statusMgr, tt.createOnlyMode, "server-hash", "controller-hash")
+			err := reconciler.reconcileStatefulSet(context.Background(), server, statusMgr, tt.createOnlyMode, "server-hash", "controller-hash", "")
 
 			if tt.expectError && err == nil {
 				t.Error("Expected error but got none")
@@ -982,7 +982,7 @@ func TestGenerateStatefulSet_VaultK8sAuth(t *testing.T) {
 		},
 	}
 
-	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2")
+	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2", "")
 
 	var foundVolume bool
 	for _, vol := range sts.Spec.Template.Spec.Volumes {
@@ -1054,7 +1054,7 @@ func TestGenerateStatefulSet_VaultCACert(t *testing.T) {
 		},
 	}
 
-	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2")
+	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2", "")
 
 	var foundVolume bool
 	for _, vol := range sts.Spec.Template.Spec.Volumes {
@@ -1107,7 +1107,7 @@ func TestGenerateStatefulSet_CertManager(t *testing.T) {
 		},
 	}
 
-	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2")
+	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2", "")
 
 	for _, vol := range sts.Spec.Template.Spec.Volumes {
 		if vol.Name == "vault-token" || vol.Name == "upstream-ca" {
@@ -1124,11 +1124,242 @@ func TestGenerateStatefulSet_NoUpstreamAuthority(t *testing.T) {
 		},
 	}
 
-	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2")
+	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2", "")
 
 	for _, vol := range sts.Spec.Template.Spec.Volumes {
 		if vol.Name == "vault-token" || vol.Name == "upstream-ca" {
 			t.Errorf("Unexpected volume %q when no upstream authority configured", vol.Name)
 		}
 	}
+}
+
+func TestGenerateStatefulSet_SpireUpstreamAuthority(t *testing.T) {
+	config := &v1alpha1.SpireServerSpec{
+		Persistence: v1alpha1.Persistence{
+			Size:       "1Gi",
+			AccessMode: "ReadWriteOnce",
+		},
+		UpstreamAuthority: &v1alpha1.UpstreamAuthorityConfig{
+			Spire: &v1alpha1.UpstreamAuthoritySpire{
+				UpstreamServerAddress: "spire-server-ns.apps.hub.example.com",
+				UpstreamServerPort:    443,
+				TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+					SecretRef: &v1alpha1.SecretKeyReference{
+						Name: "upstream-bundle",
+						Key:  "bundle.crt",
+					},
+				},
+				NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+					X509pop: &v1alpha1.UpstreamX509popConfig{
+						CertificateSecretName: "x509pop-agent-cert",
+					},
+				},
+			},
+		},
+	}
+
+	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2", "")
+
+	t.Run("Adds upstream-agent sidecar container", func(t *testing.T) {
+		if len(sts.Spec.Template.Spec.Containers) != 3 {
+			t.Fatalf("Expected 3 containers (spire-server, controller-manager, upstream-agent), got %d", len(sts.Spec.Template.Spec.Containers))
+		}
+
+		sidecar := findContainerByName(sts.Spec.Template.Spec.Containers, "upstream-agent")
+		if sidecar == nil {
+			t.Fatal("upstream-agent container not found")
+		}
+
+		if sidecar.Image != utils.GetSpireAgentImage() {
+			t.Errorf("Expected image %q, got %q", utils.GetSpireAgentImage(), sidecar.Image)
+		}
+
+		expectedArgs := []string{"-expandEnv", "-config", "/run/spire/upstream-agent-config/agent.conf"}
+		if !reflect.DeepEqual(sidecar.Args, expectedArgs) {
+			t.Errorf("Expected args %v, got %v", expectedArgs, sidecar.Args)
+		}
+
+		if sidecar.SecurityContext == nil || sidecar.SecurityContext.ReadOnlyRootFilesystem == nil || !*sidecar.SecurityContext.ReadOnlyRootFilesystem {
+			t.Error("Expected readOnlyRootFilesystem to be true")
+		}
+	})
+
+	t.Run("Adds required volumes", func(t *testing.T) {
+		requiredVolumes := []string{
+			"upstream-agent-socket",
+			"upstream-agent-data",
+			"upstream-agent-config",
+			"x509pop-cert",
+			"upstream-bundle",
+		}
+
+		for _, name := range requiredVolumes {
+			found := false
+			for _, vol := range sts.Spec.Template.Spec.Volumes {
+				if vol.Name == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Required volume %q not found", name)
+			}
+		}
+	})
+
+	t.Run("Validates volume sources", func(t *testing.T) {
+		for _, vol := range sts.Spec.Template.Spec.Volumes {
+			switch vol.Name {
+			case "upstream-agent-socket":
+				if vol.EmptyDir == nil {
+					t.Error("upstream-agent-socket should be emptyDir")
+				}
+			case "upstream-agent-data":
+				if vol.EmptyDir == nil {
+					t.Error("upstream-agent-data should be emptyDir")
+				}
+			case "upstream-agent-config":
+				if vol.ConfigMap == nil || vol.ConfigMap.Name != "upstream-agent-config" {
+					t.Error("upstream-agent-config should be ConfigMap 'upstream-agent-config'")
+				}
+			case "x509pop-cert":
+				if vol.Secret == nil || vol.Secret.SecretName != "x509pop-agent-cert" {
+					t.Error("x509pop-cert should reference Secret 'x509pop-agent-cert'")
+				}
+			case "upstream-bundle":
+				if vol.Secret == nil || vol.Secret.SecretName != "upstream-bundle" {
+					t.Error("upstream-bundle should reference Secret 'upstream-bundle'")
+				}
+				if len(vol.Secret.Items) != 1 || vol.Secret.Items[0].Key != "bundle.crt" || vol.Secret.Items[0].Path != "bundle.crt" {
+					t.Errorf("upstream-bundle should map key bundle.crt, got %v", vol.Secret.Items)
+				}
+			}
+		}
+	})
+
+	t.Run("Mounts socket into spire-server container", func(t *testing.T) {
+		spireServer := findContainerByName(sts.Spec.Template.Spec.Containers, "spire-server")
+		if spireServer == nil {
+			t.Fatal("spire-server container not found")
+		}
+
+		var socketMount *corev1.VolumeMount
+		for i := range spireServer.VolumeMounts {
+			if spireServer.VolumeMounts[i].Name == "upstream-agent-socket" {
+				socketMount = &spireServer.VolumeMounts[i]
+				break
+			}
+		}
+		if socketMount == nil {
+			t.Fatal("upstream-agent-socket mount not found on spire-server container")
+		}
+		if socketMount.MountPath != "/run/spire/upstream-agent" {
+			t.Errorf("Expected mount path %q, got %q", "/run/spire/upstream-agent", socketMount.MountPath)
+		}
+		if !socketMount.ReadOnly {
+			t.Error("Expected socket mount on spire-server to be read-only")
+		}
+	})
+
+	t.Run("Sidecar has all required volume mounts", func(t *testing.T) {
+		sidecar := findContainerByName(sts.Spec.Template.Spec.Containers, "upstream-agent")
+		if sidecar == nil {
+			t.Fatal("upstream-agent container not found")
+		}
+
+		requiredMounts := map[string]string{
+			"upstream-agent-socket": "/run/spire/upstream-agent",
+			"upstream-agent-data":   "/run/spire/upstream-agent-data",
+			"upstream-agent-config": "/run/spire/upstream-agent-config",
+			"x509pop-cert":          "/run/spire/x509pop-cert",
+			"upstream-bundle":       "/run/spire/upstream-bundle",
+		}
+
+		for name, expectedPath := range requiredMounts {
+			found := false
+			for _, mount := range sidecar.VolumeMounts {
+				if mount.Name == name {
+					found = true
+					if mount.MountPath != expectedPath {
+						t.Errorf("Mount %q: expected path %q, got %q", name, expectedPath, mount.MountPath)
+					}
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Required mount %q not found on upstream-agent sidecar", name)
+			}
+		}
+	})
+}
+
+func TestGenerateStatefulSet_SpireUpstreamAuthority_InsecureBootstrap(t *testing.T) {
+	config := &v1alpha1.SpireServerSpec{
+		Persistence: v1alpha1.Persistence{
+			Size:       "1Gi",
+			AccessMode: "ReadWriteOnce",
+		},
+		UpstreamAuthority: &v1alpha1.UpstreamAuthorityConfig{
+			Spire: &v1alpha1.UpstreamAuthoritySpire{
+				UpstreamServerAddress: "spire-server-ns.apps.hub.example.com",
+				TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+					InsecureBootstrap: true,
+				},
+				NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+					X509pop: &v1alpha1.UpstreamX509popConfig{
+						CertificateSecretName: "x509pop-agent-cert",
+					},
+				},
+			},
+		},
+	}
+
+	sts := GenerateSpireServerStatefulSet(config, "hash1", "hash2", "")
+
+	t.Run("Does not add upstream-bundle volume when using insecure bootstrap", func(t *testing.T) {
+		for _, vol := range sts.Spec.Template.Spec.Volumes {
+			if vol.Name == "upstream-bundle" {
+				t.Error("upstream-bundle volume should not exist when insecureBootstrap is true")
+			}
+		}
+	})
+
+	t.Run("Sidecar does not mount upstream-bundle", func(t *testing.T) {
+		sidecar := findContainerByName(sts.Spec.Template.Spec.Containers, "upstream-agent")
+		if sidecar == nil {
+			t.Fatal("upstream-agent container not found")
+		}
+
+		for _, mount := range sidecar.VolumeMounts {
+			if mount.Name == "upstream-bundle" {
+				t.Error("upstream-bundle mount should not exist when insecureBootstrap is true")
+			}
+		}
+	})
+
+	t.Run("Still has required volumes and sidecar", func(t *testing.T) {
+		if len(sts.Spec.Template.Spec.Containers) != 3 {
+			t.Fatalf("Expected 3 containers, got %d", len(sts.Spec.Template.Spec.Containers))
+		}
+
+		requiredVolumes := []string{
+			"upstream-agent-socket",
+			"upstream-agent-data",
+			"upstream-agent-config",
+			"x509pop-cert",
+		}
+
+		for _, name := range requiredVolumes {
+			found := false
+			for _, vol := range sts.Spec.Template.Spec.Volumes {
+				if vol.Name == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Required volume %q not found", name)
+			}
+		}
+	})
 }

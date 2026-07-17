@@ -920,6 +920,131 @@ func TestValidateUpstreamAuthority(t *testing.T) {
 			expectError: true,
 			errorMsg:    "k8sAuthRoleName is required",
 		},
+		{
+			name: "valid spire config with x509pop and secretRef",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+						SecretRef: &v1alpha1.SecretKeyReference{Name: "bundle", Key: "bundle.crt"},
+					},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						X509pop: &v1alpha1.UpstreamX509popConfig{CertificateSecretName: "cert"},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "valid spire config with k8sPsat",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle:           v1alpha1.UpstreamTrustBundleConfig{InsecureBootstrap: true},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						K8sPsat: &v1alpha1.UpstreamK8sPsatConfig{ClusterName: "downstream-cluster"},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "valid spire config with insecureBootstrap",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle:           v1alpha1.UpstreamTrustBundleConfig{InsecureBootstrap: true},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						X509pop: &v1alpha1.UpstreamX509popConfig{CertificateSecretName: "cert"},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "spire missing upstreamServerAddress",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					TrustBundle: v1alpha1.UpstreamTrustBundleConfig{InsecureBootstrap: true},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						X509pop: &v1alpha1.UpstreamX509popConfig{CertificateSecretName: "cert"},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "upstreamServerAddress is required",
+		},
+		{
+			name: "spire nodeAttestor neither x509pop nor k8sPsat",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle:           v1alpha1.UpstreamTrustBundleConfig{InsecureBootstrap: true},
+					NodeAttestor:          v1alpha1.UpstreamNodeAttestorConfig{},
+				},
+			},
+			expectError: true,
+			errorMsg:    "exactly one of x509pop or k8sPsat must be set",
+		},
+		{
+			name: "spire x509pop missing certificateSecretName",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle:           v1alpha1.UpstreamTrustBundleConfig{InsecureBootstrap: true},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						X509pop: &v1alpha1.UpstreamX509popConfig{},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "certificateSecretName is required",
+		},
+		{
+			name: "spire k8sPsat missing clusterName",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle:           v1alpha1.UpstreamTrustBundleConfig{InsecureBootstrap: true},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						K8sPsat: &v1alpha1.UpstreamK8sPsatConfig{},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "clusterName is required",
+		},
+		{
+			name: "spire trustBundle neither secretRef nor insecureBootstrap",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle:           v1alpha1.UpstreamTrustBundleConfig{},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						X509pop: &v1alpha1.UpstreamX509popConfig{CertificateSecretName: "cert"},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "either secretRef must be set or insecureBootstrap must be true",
+		},
+		{
+			name: "spire trustBundle both secretRef and insecureBootstrap",
+			ua: &v1alpha1.UpstreamAuthorityConfig{
+				Spire: &v1alpha1.UpstreamAuthoritySpire{
+					UpstreamServerAddress: "spire.hub.example.com",
+					TrustBundle: v1alpha1.UpstreamTrustBundleConfig{
+						SecretRef:         &v1alpha1.SecretKeyReference{Name: "bundle", Key: "bundle.crt"},
+						InsecureBootstrap: true,
+					},
+					NodeAttestor: v1alpha1.UpstreamNodeAttestorConfig{
+						X509pop: &v1alpha1.UpstreamX509popConfig{CertificateSecretName: "cert"},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "mutually exclusive",
+		},
 	}
 
 	for _, tt := range tests {

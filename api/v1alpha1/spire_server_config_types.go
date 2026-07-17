@@ -113,6 +113,23 @@ type SpireServerSpec struct {
 	// +kubebuilder:validation:Optional
 	UpstreamAuthority *UpstreamAuthorityConfig `json:"upstreamAuthority,omitempty"`
 
+	// exportGRPCRoute controls whether the operator creates a passthrough Route
+	// to expose this SPIRE server's gRPC API (port 8081) for cross-cluster
+	// nested SPIRE. When true, downstream clusters can reach this server via
+	// the Route on port 443. Set this to true on the upstream/hub cluster's
+	// SpireServer CR so downstream spoke clusters can connect their
+	// upstream-agent sidecars to it.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=false
+	ExportGRPCRoute bool `json:"exportGRPCRoute,omitempty"`
+
+	// additionalNodeAttestors configures additional NodeAttestor plugins for
+	// this SPIRE server beyond the default k8s_psat. Use this when the server
+	// acts as an upstream for nested SPIRE and needs to attest downstream
+	// agents that use x509pop attestation.
+	// +kubebuilder:validation:Optional
+	AdditionalNodeAttestors *AdditionalNodeAttestors `json:"additionalNodeAttestors,omitempty"`
+
 	CommonConfig `json:",inline"`
 }
 
@@ -362,9 +379,31 @@ type CASubject struct {
 	CommonName string `json:"commonName,omitempty"`
 }
 
+// AdditionalNodeAttestors configures additional NodeAttestor plugins for the
+// SPIRE server beyond the default k8s_psat attestor.
+type AdditionalNodeAttestors struct {
+	// x509pop enables the x509pop NodeAttestor on this SPIRE server. This
+	// allows the server to attest agents from downstream clusters that present
+	// a certificate signed by the specified CA. Set this on the upstream/hub
+	// cluster's SpireServer CR.
+	// +kubebuilder:validation:Optional
+	X509pop *ServerX509popAttestorConfig `json:"x509pop,omitempty"`
+}
+
+// ServerX509popAttestorConfig configures the x509pop NodeAttestor on the
+// SPIRE server side. The server uses the referenced CA bundle to verify
+// certificates presented by downstream agents during x509pop attestation.
+type ServerX509popAttestorConfig struct {
+	// caBundleSecretRef references a Secret containing the CA certificate
+	// used to verify x509pop agent certificates from downstream clusters.
+	// The Secret must be in the operator namespace.
+	// +kubebuilder:validation:Required
+	CABundleSecretRef SecretKeyReference `json:"caBundleSecretRef"`
+}
+
 // UpstreamAuthorityConfig selects and configures an UpstreamAuthority plugin.
-// Exactly one of certManager or vault must be set.
-// +kubebuilder:validation:XValidation:rule="(has(self.certManager) && !has(self.vault)) || (!has(self.certManager) && has(self.vault))",message="exactly one of certManager or vault must be set"
+// Exactly one of certManager, vault, or spire must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.certManager) ? 1 : 0) + (has(self.vault) ? 1 : 0) + (has(self.spire) ? 1 : 0) == 1",message="exactly one of certManager, vault, or spire must be set"
 type UpstreamAuthorityConfig struct {
 	// certManager configures the cert-manager UpstreamAuthority plugin.
 	// +kubebuilder:validation:Optional
@@ -373,6 +412,14 @@ type UpstreamAuthorityConfig struct {
 	// vault configures the HashiCorp Vault UpstreamAuthority plugin.
 	// +kubebuilder:validation:Optional
 	Vault *UpstreamAuthorityVault `json:"vault,omitempty"`
+
+	// spire configures the nested SPIRE UpstreamAuthority plugin.
+	// When set, the operator injects an upstream-agent sidecar into the
+	// SPIRE server StatefulSet. This agent attests to a remote upstream
+	// SPIRE server and exposes a Workload API socket that the downstream
+	// SPIRE server uses to obtain its intermediate CA.
+	// +kubebuilder:validation:Optional
+	Spire *UpstreamAuthoritySpire `json:"spire,omitempty"`
 }
 
 // UpstreamAuthorityCertManager configures the cert-manager UpstreamAuthority plugin.
@@ -459,6 +506,119 @@ type VaultK8sAuthConfig struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:="vault"
 	Audience string `json:"audience,omitempty"`
+}
+
+// UpstreamAuthoritySpire configures the nested SPIRE UpstreamAuthority plugin.
+// An upstream-agent sidecar container is injected into the SPIRE server
+// StatefulSet. The sidecar attests to an upstream SPIRE server (via an
+// OpenShift Route) and exposes a local Workload API socket over an emptyDir
+// volume. The downstream SPIRE server reads this socket to request
+// intermediate CA signing from the upstream server.
+type UpstreamAuthoritySpire struct {
+	// upstreamServerAddress is the hostname of the upstream SPIRE server's
+	// OpenShift Route (e.g., spire-server-ns.apps.hub-cluster.example.com).
+	// The upstream-agent sidecar connects to this address to attest and
+	// obtain its SVID.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	UpstreamServerAddress string `json:"upstreamServerAddress"`
+
+	// upstreamServerPort is the port of the upstream SPIRE server Route.
+	// Use 443 when connecting through an OpenShift passthrough Route.
+	// Use 8081 when connecting through a LoadBalancer or ClusterIP Service.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default:=443
+	UpstreamServerPort int32 `json:"upstreamServerPort,omitempty"`
+
+	// trustBundle configures how the upstream-agent sidecar obtains the
+	// upstream SPIRE server's trust bundle for initial TLS verification.
+	// +kubebuilder:validation:Required
+	TrustBundle UpstreamTrustBundleConfig `json:"trustBundle"`
+
+	// nodeAttestor configures the node attestation method used by the
+	// upstream-agent sidecar to prove its identity to the upstream SPIRE server.
+	// Exactly one attestation method must be configured.
+	// +kubebuilder:validation:Required
+	NodeAttestor UpstreamNodeAttestorConfig `json:"nodeAttestor"`
+}
+
+// UpstreamNodeAttestorConfig selects and configures the node attestation
+// method for the upstream-agent sidecar.
+// Exactly one of x509pop or k8sPsat must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.x509pop) ? 1 : 0) + (has(self.k8sPsat) ? 1 : 0) == 1",message="exactly one of x509pop or k8sPsat must be set"
+type UpstreamNodeAttestorConfig struct {
+	// x509pop configures X.509 Certificate Proof of Possession attestation.
+	// The sidecar presents a pre-provisioned certificate to prove its identity
+	// to the upstream SPIRE server. Recommended for cross-cluster deployments
+	// because it requires no cross-cluster API access and is reattestable.
+	// +kubebuilder:validation:Optional
+	X509pop *UpstreamX509popConfig `json:"x509pop,omitempty"`
+
+	// k8sPsat configures Kubernetes Projected Service Account Token attestation.
+	// The sidecar presents a projected SA token to the upstream SPIRE server,
+	// which validates it via the downstream cluster's TokenReview API.
+	// Requires a kubeconfig Secret on the upstream cluster for cross-cluster
+	// token validation.
+	// +kubebuilder:validation:Optional
+	K8sPsat *UpstreamK8sPsatConfig `json:"k8sPsat,omitempty"`
+}
+
+// UpstreamTrustBundleConfig configures the upstream trust bundle for the
+// upstream-agent sidecar's initial TLS connection to the upstream SPIRE server.
+// Exactly one of secretRef or insecureBootstrap=true must be used.
+// +kubebuilder:validation:XValidation:rule="has(self.secretRef) || self.insecureBootstrap == true",message="either secretRef must be set or insecureBootstrap must be true"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || self.insecureBootstrap != true",message="secretRef and insecureBootstrap are mutually exclusive"
+type UpstreamTrustBundleConfig struct {
+	// secretRef references a Secret containing the upstream SPIRE server's
+	// root CA certificate used for TLS verification during initial connection.
+	// The Secret must be in the operator namespace and contain the CA
+	// certificate in PEM format.
+	// +kubebuilder:validation:Optional
+	SecretRef *SecretKeyReference `json:"secretRef,omitempty"`
+
+	// insecureBootstrap enables Trust On First Use (TOFU) mode for the
+	// upstream-agent sidecar. When true, the sidecar skips server certificate
+	// verification on its first connection and pins the trust bundle received
+	// from the server for subsequent connections.
+	// WARNING: This is vulnerable to man-in-the-middle attacks on the first
+	// connection. Use secretRef for production deployments.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=false
+	InsecureBootstrap bool `json:"insecureBootstrap,omitempty"`
+}
+
+// UpstreamX509popConfig configures x509pop node attestation for the
+// upstream-agent sidecar. The agent certificate and key are mounted from
+// a Kubernetes Secret into the sidecar container.
+type UpstreamX509popConfig struct {
+	// certificateSecretName is the name of a Secret in the operator namespace
+	// containing the x509pop agent certificate and private key. The Secret
+	// must contain two keys:
+	//   - agent.crt: the agent certificate in PEM format (must include
+	//     digitalSignature key usage)
+	//   - agent.key: the agent private key in PEM format
+	// The certificate must be signed by a CA that the upstream SPIRE server
+	// trusts (configured in the upstream server's x509pop NodeAttestor
+	// ca_bundle_path).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	CertificateSecretName string `json:"certificateSecretName"`
+}
+
+// UpstreamK8sPsatConfig configures k8s_psat node attestation for the
+// upstream-agent sidecar. The sidecar uses a projected Kubernetes
+// ServiceAccount token to attest to the upstream SPIRE server.
+type UpstreamK8sPsatConfig struct {
+	// clusterName is the cluster name that must match the cluster entry in
+	// the upstream SPIRE server's k8s_psat NodeAttestor configuration.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	ClusterName string `json:"clusterName"`
 }
 
 // SecretKeyReference is a reference to a specific key within a Secret.
